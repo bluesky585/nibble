@@ -13,9 +13,20 @@ The name means a small bite: chunks should be small enough to retrieve on their 
 - **Small core.** Get chunking right first. Document parsing, embeddings, and vector stores are out of scope for now.
 - **English only.** Code, comments, commit messages, and docs in this repo are written in English.
 
-## Status
+## CLI
 
-The repo is newly initialized. There is no chunker yet. Next: types, tokenizer, delimiter splitting, then chunkers.
+```bash
+go run ./cmd/nibble -chunker recursive -size 512 path/to/file.txt
+```
+
+Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `-chunker` | `recursive` | `recursive`, `sentence`, or `token` |
+| `-tokenizer` | `character` | `character` or `word` |
+| `-size` | `512` | max tokens per chunk |
+| `-overlap` | `0` | token overlap; token chunker only |
 
 ## Development
 
@@ -23,6 +34,5 @@ Requires Go 1.26+.
 
 ```bash
 go test ./...
+go build -o nibble ./cmd/nibble
 ```
-
-There are no Go packages yet, so this command reports that no packages matched. That is expected.
