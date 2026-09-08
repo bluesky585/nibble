@@ -34,6 +34,13 @@ func TestCharacterRoundTrip(t *testing.T) {
 			if got != text {
 				t.Fatalf("Decode(Encode(%q)) = %q", text, got)
 			}
+			parts := tok.Split(text)
+			if tok.Count(text) != len(parts) {
+				t.Fatalf("Count=%d len(Split)=%d", tok.Count(text), len(parts))
+			}
+			if Join(parts) != text {
+				t.Fatalf("Join(Split(%q)) = %q", text, Join(parts))
+			}
 		})
 	}
 }
