@@ -1,0 +1,26 @@
+# 编译产物
+bin/
+dist/
+/nibble
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试与覆盖率
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go workspace 文件（本仓库用 go.mod，不用 go.work）
+go.work
+go.work.sum
+
+# 编辑器与系统
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
