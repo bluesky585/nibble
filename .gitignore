@@ -1,4 +1,4 @@
-# 编译产物
+# Build artifacts
 bin/
 dist/
 /nibble
@@ -8,17 +8,17 @@ dist/
 *.so
 *.dylib
 
-# 测试与覆盖率
+# Tests and coverage
 *.test
 *.out
 coverage.out
 coverage.html
 
-# Go workspace 文件（本仓库用 go.mod，不用 go.work）
+# Go workspace files (this repo uses go.mod only)
 go.work
 go.work.sum
 
-# 编辑器与系统
+# Editors and OS
 .idea/
 .vscode/
 *.swp

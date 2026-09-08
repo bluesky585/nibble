@@ -1,27 +1,28 @@
 # nibble
 
-Go 写的文本切分库，面向 RAG：把长文本切成可检索的小段。
+A Go library for splitting long text into retrieval-sized chunks for RAG.
 
-名字取自「一小口」。切分要小到能独立检索，又要完整到不丢上下文。
+The name means a small bite: chunks should be small enough to retrieve on their own, and complete enough to keep context.
 
-## 原则
+## Principles
 
-- **可重建**：没有 overlap 时，按顺序拼接所有 chunk 必须等于原文。
-- **索引正确**：每个 chunk 带半开区间 `[Start, End)`。默认按 Unicode 码点（Go 的 `rune`）计数，和字节长度分开。
-- **确定性**：同一输入、同一配置，永远得到同一组 chunk。
-- **度量分开**：字符、字节、token 是三种尺子，不要混用。
-- **小核心**：先把切分做对。解析文档、embedding、向量库都不是现在的范围。
+- **Reconstructable.** With no overlap, concatenating chunks in order must equal the original text.
+- **Correct offsets.** Each chunk carries a half-open range `[Start, End)`. Offsets count Unicode code points (`rune` in Go), not bytes.
+- **Deterministic.** The same input and config always produce the same chunks.
+- **Separate measures.** Characters, bytes, and tokens are different rulers. Do not mix them.
+- **Small core.** Get chunking right first. Document parsing, embeddings, and vector stores are out of scope for now.
+- **English only.** Code, comments, commit messages, and docs in this repo are written in English.
 
-## 状态
+## Status
 
-仓库刚建好，还没有切分实现。接下来会按小步加：类型 → tokenizer → 分隔符切分 → 几种 chunker。
+The repo is newly initialized. There is no chunker yet. Next: types, tokenizer, delimiter splitting, then chunkers.
 
-## 开发
+## Development
 
-需要 Go 1.26+。
+Requires Go 1.26+.
 
 ```bash
 go test ./...
 ```
 
-当前还没有 Go 包，这条命令会提示没有可测试的 package，属正常。
+There are no Go packages yet, so this command reports that no packages matched. That is expected.
