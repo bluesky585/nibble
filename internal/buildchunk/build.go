@@ -8,6 +8,7 @@ import (
 	"github.com/bluesky585/nibble/pkg/fastchunker"
 	"github.com/bluesky585/nibble/pkg/recursive"
 	"github.com/bluesky585/nibble/pkg/sentencechunker"
+	"github.com/bluesky585/nibble/pkg/tablechunker"
 	"github.com/bluesky585/nibble/pkg/tokenchunker"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
@@ -46,6 +47,11 @@ func New(chunkerName, tokName string, size, overlap int) (Chunker, error) {
 		return sentencechunker.New(tok, size, nil)
 	case "token":
 		return tokenchunker.New(tok, size, overlap)
+	case "table":
+		if overlap != 0 {
+			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		return tablechunker.New(tok, size)
 	default:
 		return nil, fmt.Errorf("unknown chunker %q", chunkerName)
 	}

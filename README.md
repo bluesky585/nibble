@@ -23,12 +23,14 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `-chunker` | `recursive` | `recursive`, `sentence`, `token`, or `fast` |
+| `-chunker` | `recursive` | `recursive`, `sentence`, `token`, `fast`, or `table` |
 | `-tokenizer` | `character` | `character` or `word` (ignored by `fast`) |
 | `-size` | `512` | max tokens per chunk; **max bytes** for `fast` |
 | `-overlap` | `0` | token overlap; token chunker only |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
+
+`table` splits GitHub-flavored Markdown tables by row. Later row-groups copy the header into `context` so retrieval keeps column names; `text` stays a slice of the original, so reconstruct still works.
 
 ## HTTP API
 
