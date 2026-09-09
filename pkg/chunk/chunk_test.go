@@ -100,6 +100,7 @@ func TestChunkJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c.Context = "header"
 
 	raw, err := json.Marshal(c)
 	if err != nil {

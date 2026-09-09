@@ -55,6 +55,23 @@ func TestRunFile(t *testing.T) {
 	}
 }
 
+func TestRunTable(t *testing.T) {
+	t.Parallel()
+
+	original := "| h |\n| --- |\n| 1 |\n"
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "table", "-size", "64"}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+}
+
 func TestRunFast(t *testing.T) {
 	t.Parallel()
 

@@ -16,6 +16,9 @@ type Chunk struct {
 	Start      int    `json:"start"`
 	End        int    `json:"end"`
 	TokenCount int    `json:"token_count"`
+	// Context is extra text for retrieval (for example a table header).
+	// It is not part of Text and is ignored by reconstruct checks.
+	Context string `json:"context,omitempty"`
 }
 
 // New builds a Chunk and checks its invariants.
