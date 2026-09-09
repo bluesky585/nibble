@@ -1,23 +1,9 @@
 package embed
 
 import (
-	"math"
 	"reflect"
 	"testing"
 )
-
-func cosine(a, b []float64) float64 {
-	var dot, na, nb float64
-	for i := range a {
-		dot += a[i] * b[i]
-		na += a[i] * a[i]
-		nb += b[i] * b[i]
-	}
-	if na == 0 || nb == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(na) * math.Sqrt(nb))
-}
 
 func TestHashingSimilarWording(t *testing.T) {
 	t.Parallel()
@@ -30,9 +16,9 @@ func TestHashingSimilarWording(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cosine(vecs[0], vecs[1]) < cosine(vecs[0], vecs[2]) {
+	if Cosine(vecs[0], vecs[1]) < Cosine(vecs[0], vecs[2]) {
 		t.Fatalf("overlapping words should be closer: %v %v %v",
-			cosine(vecs[0], vecs[1]), cosine(vecs[0], vecs[2]), vecs)
+			Cosine(vecs[0], vecs[1]), Cosine(vecs[0], vecs[2]), vecs)
 	}
 }
 

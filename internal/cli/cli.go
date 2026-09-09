@@ -11,6 +11,8 @@ import (
 
 	"github.com/bluesky585/nibble/internal/buildchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
+	"github.com/bluesky585/nibble/pkg/embed"
+	"github.com/bluesky585/nibble/pkg/store"
 )
 
 // Run parses args, chunks input, and writes JSON chunks to stdout.
@@ -28,6 +30,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	tokName := fs.String("tokenizer", "character", "tokenizer: character or word (ignored by fast)")
 	size := fs.Int("size", 512, "max tokens per chunk (max bytes for fast)")
 	overlap := fs.Int("overlap", 0, "token overlap (token chunker only)")
+	indexPath := fs.String("index", "", "optional JSONL path to store chunk embeddings")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -52,6 +55,18 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if chunks == nil {
 		chunks = []chunk.Chunk{}
+	}
+
+	if *indexPath != "" {
+		st, err := store.OpenJSONL(*indexPath)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if err := store.Index(st, embed.Hashing{}, chunks); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 	}
 
 	enc := json.NewEncoder(stdout)

@@ -27,6 +27,7 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 | `-tokenizer` | `character` | `character` or `word` (ignored by `fast`) |
 | `-size` | `512` | max tokens per chunk; **max bytes** for `fast` |
 | `-overlap` | `0` | token overlap; token chunker only |
+| `-index` | | optional JSONL file of chunk embeddings (hashing vectors) |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
@@ -35,6 +36,8 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 `code` splits Go source on top-level declarations (package, types, funcs), keeping doc comments with the decl. If the file does not parse, it falls back to token windows.
 
 `semantic` embeds sentences with a local hashing vector (no API) and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full. `Embedder` is an interface; swap in a model later.
+
+`-index` writes those chunks plus hashing vectors to a JSONL file (`pkg/store`). Search is brute-force cosine; swap the `Store` for a real database later.
 
 ## HTTP API
 

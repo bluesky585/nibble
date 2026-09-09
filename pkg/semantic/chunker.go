@@ -3,7 +3,6 @@ package semantic
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/bluesky585/nibble/pkg/chunk"
@@ -97,7 +96,7 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	for i, p := range pieces {
 		n := c.tok.Count(p.Text)
 		if len(buf) > 0 {
-			if tokens+n > c.size || cosine(vecs[i-1], vecs[i]) < c.minSim {
+			if tokens+n > c.size || embed.Cosine(vecs[i-1], vecs[i]) < c.minSim {
 				if err := flush(); err != nil {
 					return nil, err
 				}
@@ -110,20 +109,4 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 		return nil, err
 	}
 	return out, nil
-}
-
-func cosine(a, b []float64) float64 {
-	if len(a) == 0 || len(a) != len(b) {
-		return 0
-	}
-	var dot, na, nb float64
-	for i := range a {
-		dot += a[i] * b[i]
-		na += a[i] * a[i]
-		nb += b[i] * b[i]
-	}
-	if na == 0 || nb == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
