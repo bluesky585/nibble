@@ -6,8 +6,10 @@ import (
 
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/codechunker"
+	"github.com/bluesky585/nibble/pkg/embed"
 	"github.com/bluesky585/nibble/pkg/fastchunker"
 	"github.com/bluesky585/nibble/pkg/recursive"
+	"github.com/bluesky585/nibble/pkg/semantic"
 	"github.com/bluesky585/nibble/pkg/sentencechunker"
 	"github.com/bluesky585/nibble/pkg/tablechunker"
 	"github.com/bluesky585/nibble/pkg/tokenchunker"
@@ -58,6 +60,11 @@ func New(chunkerName, tokName string, size, overlap int) (Chunker, error) {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
 		}
 		return codechunker.New(tok, size)
+	case "semantic":
+		if overlap != 0 {
+			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		return semantic.New(tok, embed.Hashing{}, size, 0)
 	default:
 		return nil, fmt.Errorf("unknown chunker %q", chunkerName)
 	}

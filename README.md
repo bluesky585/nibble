@@ -23,7 +23,7 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `-chunker` | `recursive` | `recursive`, `sentence`, `token`, `fast`, `table`, or `code` |
+| `-chunker` | `recursive` | `recursive`, `sentence`, `token`, `fast`, `table`, `code`, or `semantic` |
 | `-tokenizer` | `character` | `character` or `word` (ignored by `fast`) |
 | `-size` | `512` | max tokens per chunk; **max bytes** for `fast` |
 | `-overlap` | `0` | token overlap; token chunker only |
@@ -33,6 +33,8 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 `table` splits GitHub-flavored Markdown tables by row. Later row-groups copy the header into `context` so retrieval keeps column names; `text` stays a slice of the original, so reconstruct still works.
 
 `code` splits Go source on top-level declarations (package, types, funcs), keeping doc comments with the decl. If the file does not parse, it falls back to token windows.
+
+`semantic` embeds sentences with a local hashing vector (no API) and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full. `Embedder` is an interface; swap in a model later.
 
 ## HTTP API
 
