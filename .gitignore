@@ -2,6 +2,7 @@
 bin/
 dist/
 /nibble
+/nibble-api
 *.exe
 *.exe~
 *.dll
