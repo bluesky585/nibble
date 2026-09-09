@@ -28,6 +28,31 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 | `-size` | `512` | max tokens per chunk |
 | `-overlap` | `0` | token overlap; token chunker only |
 
+## HTTP API
+
+```bash
+go run ./cmd/nibble-api -addr 127.0.0.1:8080
+```
+
+| Method | Path | Meaning |
+| --- | --- | --- |
+| `GET` | `/health` | liveness |
+| `POST` | `/v1/chunk` | chunk JSON body |
+
+`POST /v1/chunk` body:
+
+```json
+{
+  "text": "Hello. World.",
+  "chunker": "recursive",
+  "tokenizer": "character",
+  "size": 512,
+  "overlap": 0
+}
+```
+
+Omitted fields use the same defaults as the CLI. Response: `{"chunks":[...]}`.
+
 ## Development
 
 Requires Go 1.26+.
@@ -35,4 +60,5 @@ Requires Go 1.26+.
 ```bash
 go test ./...
 go build -o nibble ./cmd/nibble
+go build -o nibble-api ./cmd/nibble-api
 ```
