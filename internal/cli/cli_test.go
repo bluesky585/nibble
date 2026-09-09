@@ -55,6 +55,23 @@ func TestRunFile(t *testing.T) {
 	}
 }
 
+func TestRunSemantic(t *testing.T) {
+	t.Parallel()
+
+	original := "Cats sleep. Quantum chromodynamics is hard."
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "semantic", "-size", "512"}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+}
+
 func TestRunCode(t *testing.T) {
 	t.Parallel()
 
