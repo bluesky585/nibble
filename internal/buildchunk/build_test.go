@@ -31,6 +31,21 @@ func TestNewOverlapRejected(t *testing.T) {
 	}
 }
 
+func TestNewFast(t *testing.T) {
+	t.Parallel()
+
+	c, err := New("fast", "character", 8, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := "hello world"
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+}
+
 func TestNewUnknown(t *testing.T) {
 	t.Parallel()
 
