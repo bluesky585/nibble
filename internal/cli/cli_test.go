@@ -55,6 +55,26 @@ func TestRunFile(t *testing.T) {
 	}
 }
 
+func TestRunFast(t *testing.T) {
+	t.Parallel()
+
+	original := "你好"
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "fast", "-size", "1"}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+	if chunks[0].End != 1 {
+		t.Fatalf("want rune end 1, got %+v", chunks[0])
+	}
+}
+
 func TestRunTokenOverlap(t *testing.T) {
 	t.Parallel()
 

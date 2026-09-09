@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/bluesky585/nibble/pkg/chunk"
+	"github.com/bluesky585/nibble/pkg/fastchunker"
 	"github.com/bluesky585/nibble/pkg/recursive"
 	"github.com/bluesky585/nibble/pkg/sentencechunker"
 	"github.com/bluesky585/nibble/pkg/tokenchunker"
@@ -17,7 +18,16 @@ type Chunker interface {
 }
 
 // New builds a chunker. overlap is valid only for the token chunker.
+// The tokenizer is ignored when chunkerName is "fast"; size is then a
+// byte budget, while chunk offsets remain runes.
 func New(chunkerName, tokName string, size, overlap int) (Chunker, error) {
+	if chunkerName == "fast" {
+		if overlap != 0 {
+			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		return fastchunker.New(size, nil)
+	}
+
 	tok, err := newTokenizer(tokName)
 	if err != nil {
 		return nil, err

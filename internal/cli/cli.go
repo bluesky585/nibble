@@ -24,9 +24,9 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs.PrintDefaults()
 	}
 
-	chunkerName := fs.String("chunker", "recursive", "chunker: recursive, sentence, or token")
-	tokName := fs.String("tokenizer", "character", "tokenizer: character or word")
-	size := fs.Int("size", 512, "max tokens per chunk")
+	chunkerName := fs.String("chunker", "recursive", "chunker: recursive, sentence, token, or fast")
+	tokName := fs.String("tokenizer", "character", "tokenizer: character or word (ignored by fast)")
+	size := fs.Int("size", 512, "max tokens per chunk (max bytes for fast)")
 	overlap := fs.Int("overlap", 0, "token overlap (token chunker only)")
 
 	if err := fs.Parse(args); err != nil {
