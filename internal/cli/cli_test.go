@@ -10,6 +10,8 @@ import (
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
+	"github.com/bluesky585/nibble/pkg/embed"
+	"github.com/bluesky585/nibble/pkg/store"
 )
 
 func TestRunStdin(t *testing.T) {
@@ -52,6 +54,34 @@ func TestRunFile(t *testing.T) {
 	assertchunk.Split(t, original, chunks)
 	if chunks[0].End != 3 {
 		t.Fatalf("want rune offsets, first end=%d", chunks[0].End)
+	}
+}
+
+func TestRunIndex(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	original := "cats sleep. quantum chromodynamics."
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "sentence", "-size", "64", "-index", path}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	st, err := store.OpenJSONL(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := embed.Hashing{}.Embed([]string{"cats"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := st.Search(q[0], 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || !strings.Contains(hits[0].Record.Chunk.Text, "cats") {
+		t.Fatalf("got %+v", hits)
 	}
 }
 
