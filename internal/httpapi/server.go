@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/bluesky585/nibble/internal/buildchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
@@ -28,12 +29,13 @@ func Handler() http.Handler {
 	return New().Handler()
 }
 
-// Handler serves health, chunk, and index routes.
+// Handler serves health, chunk, index, and search routes.
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /v1/chunk", chunkText)
 	mux.HandleFunc("POST /v1/index", a.indexText)
+	mux.HandleFunc("POST /v1/search", a.searchText)
 	return mux
 }
 
@@ -56,6 +58,16 @@ type chunkResponse struct {
 
 type indexResponse struct {
 	Count int `json:"count"`
+}
+
+type searchRequest struct {
+	Query    string `json:"query"`
+	K        int    `json:"k"`
+	Embedder string `json:"embedder"`
+}
+
+type searchResponse struct {
+	Hits []store.Hit `json:"hits"`
 }
 
 type errorResponse struct {
@@ -82,6 +94,45 @@ func (a *API) indexText(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, indexResponse{Count: len(chunks)})
+}
+
+func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+
+	var req searchRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Query) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "query is required"})
+		return
+	}
+	if req.K == 0 {
+		req.K = 5
+	}
+
+	emb, err := embed.Lookup(req.Embedder)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	vecs, err := emb.Embed([]string{req.Query})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	hits, err := a.mem.Search(vecs[0], req.K)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	if hits == nil {
+		hits = []store.Hit{}
+	}
+	writeJSON(w, http.StatusOK, searchResponse{Hits: hits})
 }
 
 func prepare(w http.ResponseWriter, r *http.Request) ([]chunk.Chunk, embed.Embedder, int, error) {

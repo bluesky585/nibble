@@ -59,6 +59,52 @@ func TestIndexStores(t *testing.T) {
 	}
 }
 
+func TestSearchAfterIndex(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	h := api.Handler()
+
+	idx := httptest.NewRecorder()
+	h.ServeHTTP(idx, httptest.NewRequest(
+		http.MethodPost,
+		"/v1/index",
+		strings.NewReader(`{"text":"cats sleep. quantum field.","chunker":"sentence","size":64}`),
+	))
+	if idx.Code != http.StatusOK {
+		t.Fatalf("index status %d body=%s", idx.Code, idx.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPost,
+		"/v1/search",
+		strings.NewReader(`{"query":"cats","k":1}`),
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("search status %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Hits) != 1 || !strings.Contains(resp.Hits[0].Record.Chunk.Text, "cats") {
+		t.Fatalf("got %+v", resp.Hits)
+	}
+}
+
+func TestSearchRequiresQuery(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/search", strings.NewReader(`{"query":""}`))
+	Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+}
+
 func TestIndexEmpty(t *testing.T) {
 	t.Parallel()
 

@@ -53,6 +53,7 @@ go run ./cmd/nibble-api -addr 127.0.0.1:8080
 | `GET` | `/health` | liveness |
 | `POST` | `/v1/chunk` | chunk JSON body |
 | `POST` | `/v1/index` | chunk, embed, keep in process memory |
+| `POST` | `/v1/search` | cosine search over that memory index |
 
 `POST /v1/chunk` body:
 
@@ -67,7 +68,9 @@ go run ./cmd/nibble-api -addr 127.0.0.1:8080
 }
 ```
 
-Omitted fields use the same defaults as the CLI. `POST /v1/chunk` returns `{"chunks":[...]}`. `POST /v1/index` uses the same body and returns `{"count":N}`. Search over that index is a later endpoint.
+Omitted fields use the same defaults as the CLI. `POST /v1/chunk` returns `{"chunks":[...]}`. `POST /v1/index` uses the same body and returns `{"count":N}`.
+
+`POST /v1/search` body: `{"query":"cats","k":1,"embedder":"hashing"}`. `k` defaults to 5. Index and search must hit the same process.
 
 ## Development
 
