@@ -85,6 +85,17 @@ func TestChunkEmpty(t *testing.T) {
 	assertchunk.Split(t, "", resp.Chunks)
 }
 
+func TestChunkBadEmbedder(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chunk", strings.NewReader(`{"text":"hi","embedder":"magic"}`))
+	Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestChunkBadOptions(t *testing.T) {
 	t.Parallel()
 

@@ -187,6 +187,16 @@ func TestRunOverlapRejected(t *testing.T) {
 	}
 }
 
+func TestRunUnknownEmbedder(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-embedder", "magic"}, strings.NewReader("hi"), &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%s", code, stderr.String())
+	}
+}
+
 func TestRunUnknownChunker(t *testing.T) {
 	t.Parallel()
 

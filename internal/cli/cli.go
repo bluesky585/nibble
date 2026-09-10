@@ -31,6 +31,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	size := fs.Int("size", 512, "max tokens per chunk (max bytes for fast)")
 	overlap := fs.Int("overlap", 0, "token overlap (token chunker only)")
 	indexPath := fs.String("index", "", "optional JSONL path to store chunk embeddings")
+	embedderName := fs.String("embedder", "hashing", "embedder: hashing or openai (semantic and -index)")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -42,7 +43,13 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	c, err := buildchunk.New(*chunkerName, *tokName, *size, *overlap)
+	emb, err := embed.Lookup(*embedderName)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+
+	c, err := buildchunk.New(*chunkerName, *tokName, *size, *overlap, emb)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -63,7 +70,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := store.Index(st, embed.Hashing{}, chunks); err != nil {
+		if err := store.Index(st, emb, chunks); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
