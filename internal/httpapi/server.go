@@ -7,6 +7,7 @@ import (
 
 	"github.com/bluesky585/nibble/internal/buildchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
+	"github.com/bluesky585/nibble/pkg/embed"
 )
 
 const maxBody = 10 << 20
@@ -29,6 +30,7 @@ type chunkRequest struct {
 	Tokenizer string `json:"tokenizer"`
 	Size      int    `json:"size"`
 	Overlap   int    `json:"overlap"`
+	Embedder  string `json:"embedder"`
 }
 
 type chunkResponse struct {
@@ -60,7 +62,13 @@ func chunkText(w http.ResponseWriter, r *http.Request) {
 		req.Size = 512
 	}
 
-	c, err := buildchunk.New(req.Chunker, req.Tokenizer, req.Size, req.Overlap)
+	emb, err := embed.Lookup(req.Embedder)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+
+	c, err := buildchunk.New(req.Chunker, req.Tokenizer, req.Size, req.Overlap, emb)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return

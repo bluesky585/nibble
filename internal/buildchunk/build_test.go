@@ -10,7 +10,7 @@ import (
 func TestNewRecursive(t *testing.T) {
 	t.Parallel()
 
-	c, err := New("recursive", "character", 64, 0)
+	c, err := New("recursive", "character", 64, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestNewRecursive(t *testing.T) {
 func TestNewOverlapRejected(t *testing.T) {
 	t.Parallel()
 
-	_, err := New("sentence", "character", 64, 1)
+	_, err := New("sentence", "character", 64, 1, nil)
 	if err == nil || !strings.Contains(err.Error(), "overlap is only supported by the token chunker") {
 		t.Fatalf("err=%v", err)
 	}
@@ -34,7 +34,7 @@ func TestNewOverlapRejected(t *testing.T) {
 func TestNewFast(t *testing.T) {
 	t.Parallel()
 
-	c, err := New("fast", "character", 8, 0)
+	c, err := New("fast", "character", 8, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,11 +49,11 @@ func TestNewFast(t *testing.T) {
 func TestNewUnknown(t *testing.T) {
 	t.Parallel()
 
-	_, err := New("magic", "character", 8, 0)
+	_, err := New("magic", "character", 8, 0, nil)
 	if err == nil || !strings.Contains(err.Error(), "unknown chunker") {
 		t.Fatalf("err=%v", err)
 	}
-	_, err = New("token", "emoji", 8, 0)
+	_, err = New("token", "emoji", 8, 0, nil)
 	if err == nil || !strings.Contains(err.Error(), "unknown tokenizer") {
 		t.Fatalf("err=%v", err)
 	}

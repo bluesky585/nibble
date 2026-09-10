@@ -24,7 +24,8 @@ type Chunker interface {
 // New builds a chunker. overlap is valid only for the token chunker.
 // The tokenizer is ignored when chunkerName is "fast"; size is then a
 // byte budget, while chunk offsets remain runes.
-func New(chunkerName, tokName string, size, overlap int) (Chunker, error) {
+// emb is used by the semantic chunker; nil means embed.Hashing.
+func New(chunkerName, tokName string, size, overlap int, emb embed.Embedder) (Chunker, error) {
 	if chunkerName == "fast" {
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
@@ -64,7 +65,10 @@ func New(chunkerName, tokName string, size, overlap int) (Chunker, error) {
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
 		}
-		return semantic.New(tok, embed.Hashing{}, size, 0)
+		if emb == nil {
+			emb = embed.Hashing{}
+		}
+		return semantic.New(tok, emb, size, 0)
 	default:
 		return nil, fmt.Errorf("unknown chunker %q", chunkerName)
 	}
