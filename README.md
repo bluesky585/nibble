@@ -42,6 +42,8 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 
 `-index` writes chunks plus vectors from the selected embedder to JSONL.
 
+`overlap.Prefix` copies the previous chunk's last tokens into `context` without changing `text`, so reconstruct still holds. It is a library helper; the CLI does not call it yet.
+
 ## HTTP API
 
 ```bash
