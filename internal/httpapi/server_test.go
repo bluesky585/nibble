@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
+	"github.com/bluesky585/nibble/pkg/embed"
 )
 
 func TestHealth(t *testing.T) {
@@ -21,6 +22,53 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("status %d", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), `"ok": true`) {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestIndexStores(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	body := `{"text":"cats sleep. quantum field.","chunker":"sentence","size":64}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/index", strings.NewReader(body))
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp indexResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Count < 1 {
+		t.Fatalf("count=%d", resp.Count)
+	}
+
+	q, err := embed.Hashing{}.Embed([]string{"cats"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := api.mem.Search(q[0], 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || !strings.Contains(hits[0].Record.Chunk.Text, "cats") {
+		t.Fatalf("got %+v", hits)
+	}
+}
+
+func TestIndexEmpty(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/index", strings.NewReader(`{"text":""}`))
+	Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"count": 0`) {
 		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
