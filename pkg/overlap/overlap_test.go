@@ -91,6 +91,58 @@ func TestPrefixShortPrevious(t *testing.T) {
 	}
 }
 
+func TestSuffix(t *testing.T) {
+	t.Parallel()
+
+	original := "hello world"
+	chunks := []chunk.Chunk{
+		mustChunk(t, "hello ", 0),
+		mustChunk(t, "world", 6),
+	}
+
+	got, err := Suffix(chunks, tokenizer.Character{}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	if got[0].Context != "wor" {
+		t.Fatalf("first context=%q want wor", got[0].Context)
+	}
+	if got[1].Context != "" {
+		t.Fatalf("last context=%q", got[1].Context)
+	}
+	if got[0].Text != "hello " {
+		t.Fatalf("text must stay %q", got[0].Text)
+	}
+}
+
+func TestSuffixKeepsExistingContext(t *testing.T) {
+	t.Parallel()
+
+	chunks := []chunk.Chunk{
+		mustChunk(t, "ab", 0),
+		mustChunk(t, "cd", 2),
+	}
+	chunks[0].Context = "H|"
+
+	got, err := Suffix(chunks, tokenizer.Character{}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Context != "H|c" {
+		t.Fatalf("context=%q", got[0].Context)
+	}
+}
+
+func TestSuffixValidation(t *testing.T) {
+	t.Parallel()
+
+	_, err := Suffix(nil, nil, 1)
+	if err == nil || !strings.Contains(err.Error(), "tokenizer is required") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestPrefixValidation(t *testing.T) {
 	t.Parallel()
 
