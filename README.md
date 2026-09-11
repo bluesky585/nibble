@@ -6,12 +6,12 @@ The name means a small bite: chunks should be small enough to retrieve on their 
 
 ## Install
 
-Requires Go 1.26+. Until a version tag exists, pin `@main`:
+Requires Go 1.26+.
 
 ```bash
-go get github.com/bluesky585/nibble@main
-go install github.com/bluesky585/nibble/cmd/nibble@main
-go install github.com/bluesky585/nibble/cmd/nibble-api@main
+go get github.com/bluesky585/nibble@v0.1.0
+go install github.com/bluesky585/nibble/cmd/nibble@v0.1.0
+go install github.com/bluesky585/nibble/cmd/nibble-api@v0.1.0
 ```
 
 ## Principles
