@@ -4,14 +4,34 @@ A Go library for splitting long text into retrieval-sized chunks for RAG.
 
 The name means a small bite: chunks should be small enough to retrieve on their own, and complete enough to keep context.
 
+## Install
+
+Requires Go 1.26+. Until a version tag exists, pin `@main`:
+
+```bash
+go get github.com/bluesky585/nibble@main
+go install github.com/bluesky585/nibble/cmd/nibble@main
+go install github.com/bluesky585/nibble/cmd/nibble-api@main
+```
+
 ## Principles
 
 - **Reconstructable.** With no overlap, concatenating chunks in order must equal the original text.
 - **Correct offsets.** Each chunk carries a half-open range `[Start, End)`. Offsets count Unicode code points (`rune` in Go), not bytes.
 - **Deterministic.** The same input and config always produce the same chunks.
 - **Separate measures.** Characters, bytes, and tokens are different rulers. Do not mix them.
-- **Small core.** Get chunking right first. Document parsing, embeddings, and vector stores are out of scope for now.
+- **Small core.** Chunking is the product. Embeddings and stores are swap-in interfaces, not a catalog of vendors.
 - **English only.** Code, comments, commit messages, and docs in this repo are written in English.
+
+## v0.1 status
+
+This is a first cut, not a production RAG platform.
+
+- Default tokenizer counts runes, not tiktoken.
+- `-embedder hashing` is bag-of-words similarity, not a neural model.
+- `POST /v1/index` lives in process memory; it is gone when the server exits.
+- `code` parses Go only.
+- There is no directory batch command and no query CLI yet.
 
 ## CLI
 
@@ -85,3 +105,7 @@ go test ./...
 go build -o nibble ./cmd/nibble
 go build -o nibble-api ./cmd/nibble-api
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
