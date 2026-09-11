@@ -156,6 +156,56 @@ func TestRunFast(t *testing.T) {
 	}
 }
 
+func TestRunContextPrefix(t *testing.T) {
+	t.Parallel()
+
+	original := "hello"
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "token", "-size", "3", "-context", "2", "-context-mode", "prefix"}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+	if len(chunks) != 2 || chunks[1].Context != "el" {
+		t.Fatalf("got %+v", chunks)
+	}
+}
+
+func TestRunContextSuffix(t *testing.T) {
+	t.Parallel()
+
+	original := "hello"
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "token", "-size", "3", "-context", "2", "-context-mode", "suffix"}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+	if len(chunks) != 2 || chunks[0].Context != "lo" {
+		t.Fatalf("got %+v", chunks)
+	}
+}
+
+func TestRunUnknownContextMode(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-context", "1", "-context-mode", "sideways"}, strings.NewReader("hello"), &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%s", code, stderr.String())
+	}
+}
+
 func TestRunTokenOverlap(t *testing.T) {
 	t.Parallel()
 
