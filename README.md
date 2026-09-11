@@ -29,6 +29,8 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 | `-overlap` | `0` | token overlap; token chunker only |
 | `-index` | | optional JSONL file of chunk embeddings |
 | `-embedder` | `hashing` | `hashing` or `openai` (used by `semantic` and `-index`) |
+| `-context` | `0` | neighbor tokens copied into `context` (0 disables) |
+| `-context-mode` | `prefix` | `prefix` or `suffix` |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
@@ -42,7 +44,7 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 
 `-index` writes chunks plus vectors from the selected embedder to JSONL.
 
-`overlap.Prefix` / `overlap.Suffix` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. The CLI does not call them yet.
+`-context` / `-context-mode` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. This is separate from `-overlap` (token windows).
 
 ## HTTP API
 

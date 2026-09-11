@@ -12,7 +12,9 @@ import (
 	"github.com/bluesky585/nibble/internal/buildchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/embed"
+	olap "github.com/bluesky585/nibble/pkg/overlap"
 	"github.com/bluesky585/nibble/pkg/store"
+	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
 
 // Run parses args, chunks input, and writes JSON chunks to stdout.
@@ -32,6 +34,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	overlap := fs.Int("overlap", 0, "token overlap (token chunker only)")
 	indexPath := fs.String("index", "", "optional JSONL path to store chunk embeddings")
 	embedderName := fs.String("embedder", "hashing", "embedder: hashing or openai (semantic and -index)")
+	contextN := fs.Int("context", 0, "neighbor tokens copied into chunk context (0 disables)")
+	contextMode := fs.String("context-mode", "prefix", "prefix or suffix (used with -context)")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -64,6 +68,27 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		chunks = []chunk.Chunk{}
 	}
 
+	if *contextN != 0 {
+		tok, err := tokenizerFromName(*tokName)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		switch *contextMode {
+		case "prefix":
+			chunks, err = olap.Prefix(chunks, tok, *contextN)
+		case "suffix":
+			chunks, err = olap.Suffix(chunks, tok, *contextN)
+		default:
+			fmt.Fprintf(stderr, "unknown context-mode %q\n", *contextMode)
+			return 2
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+	}
+
 	if *indexPath != "" {
 		st, err := store.OpenJSONL(*indexPath)
 		if err != nil {
@@ -83,6 +108,17 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func tokenizerFromName(name string) (tokenizer.Tokenizer, error) {
+	switch name {
+	case "", "character":
+		return tokenizer.Character{}, nil
+	case "word":
+		return tokenizer.Word{}, nil
+	default:
+		return nil, fmt.Errorf("unknown tokenizer %q", name)
+	}
 }
 
 func readInput(files []string, stdin io.Reader) (string, error) {
