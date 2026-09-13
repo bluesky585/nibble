@@ -237,6 +237,46 @@ func TestRunOverlapRejected(t *testing.T) {
 	}
 }
 
+func TestRunDir(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "skip.go"), []byte("package p"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "token", "-size", "64", "-dir", root, "-ext", ".txt"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	var got []struct {
+		Path   string        `json:"path"`
+		Chunks []chunk.Chunk `json:"chunks"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Path != "a.txt" {
+		t.Fatalf("got %+v", got)
+	}
+	assertchunk.Split(t, "hello", got[0].Chunks)
+}
+
+func TestRunDirAndFile(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-dir", t.TempDir(), "a.txt"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%s", code, stderr.String())
+	}
+}
+
 func TestRunUnknownEmbedder(t *testing.T) {
 	t.Parallel()
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bluesky585/nibble/internal/buildchunk"
@@ -24,7 +25,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Usage: nibble [flags] [file]\n")
-		fmt.Fprintf(stderr, "  Read a UTF-8 text file (or stdin) and print chunks as JSON.\n\n")
+		fmt.Fprintf(stderr, "  Read UTF-8 text from a file, a directory, or stdin and print JSON.\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -36,12 +37,19 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	embedderName := fs.String("embedder", "hashing", "embedder: hashing or openai (semantic and -index)")
 	contextN := fs.Int("context", 0, "neighbor tokens copied into chunk context (0 disables)")
 	contextMode := fs.String("context-mode", "prefix", "prefix or suffix (used with -context)")
+	dirPath := fs.String("dir", "", "directory to chunk (recursive; not with a file argument)")
+	extCSV := fs.String("ext", ".txt,.md", "comma-separated extensions when using -dir")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	text, err := readInput(fs.Args(), stdin)
+	if *dirPath != "" && len(fs.Args()) > 0 {
+		fmt.Fprintln(stderr, "provide either -dir or a file path, not both")
+		return 2
+	}
+
+	jobs, err := collectJobs(*dirPath, *extCSV, fs.Args(), stdin)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -59,34 +67,51 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	chunks, err := c.Chunk(text)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	if chunks == nil {
-		chunks = []chunk.Chunk{}
-	}
-
+	var tok tokenizer.Tokenizer
 	if *contextN != 0 {
-		tok, err := tokenizerFromName(*tokName)
+		tok, err = tokenizerFromName(*tokName)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
 		switch *contextMode {
-		case "prefix":
-			chunks, err = olap.Prefix(chunks, tok, *contextN)
-		case "suffix":
-			chunks, err = olap.Suffix(chunks, tok, *contextN)
+		case "prefix", "suffix":
 		default:
 			fmt.Fprintf(stderr, "unknown context-mode %q\n", *contextMode)
 			return 2
 		}
+	}
+
+	type fileResult struct {
+		Path   string        `json:"path"`
+		Chunks []chunk.Chunk `json:"chunks"`
+	}
+
+	var all []chunk.Chunk
+	results := make([]fileResult, 0, len(jobs))
+	for _, job := range jobs {
+		chunks, err := c.Chunk(job.text)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
-			return 2
+			return 1
 		}
+		if chunks == nil {
+			chunks = []chunk.Chunk{}
+		}
+		if *contextN != 0 {
+			switch *contextMode {
+			case "prefix":
+				chunks, err = olap.Prefix(chunks, tok, *contextN)
+			case "suffix":
+				chunks, err = olap.Suffix(chunks, tok, *contextN)
+			}
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
+		}
+		all = append(all, chunks...)
+		results = append(results, fileResult{Path: job.path, Chunks: chunks})
 	}
 
 	if *indexPath != "" {
@@ -95,7 +120,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := store.Index(st, emb, chunks); err != nil {
+		if err := store.Index(st, emb, all); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -103,11 +128,47 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	enc := json.NewEncoder(stdout)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(chunks); err != nil {
+	var payload any
+	if *dirPath != "" {
+		payload = results
+	} else if len(results) == 1 {
+		payload = results[0].Chunks
+	} else {
+		payload = []chunk.Chunk{}
+	}
+	if err := enc.Encode(payload); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0
+}
+
+type inputJob struct {
+	path string
+	text string
+}
+
+func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJob, error) {
+	if dir != "" {
+		rels, err := listDirFiles(dir, extCSV)
+		if err != nil {
+			return nil, err
+		}
+		jobs := make([]inputJob, 0, len(rels))
+		for _, rel := range rels {
+			b, err := os.ReadFile(filepath.Join(dir, rel))
+			if err != nil {
+				return nil, err
+			}
+			jobs = append(jobs, inputJob{path: rel, text: string(b)})
+		}
+		return jobs, nil
+	}
+	text, err := readInput(files, stdin)
+	if err != nil {
+		return nil, err
+	}
+	return []inputJob{{path: "", text: text}}, nil
 }
 
 func tokenizerFromName(name string) (tokenizer.Tokenizer, error) {
