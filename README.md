@@ -31,7 +31,7 @@ This is a first cut, not a production RAG platform.
 - `-embedder hashing` is bag-of-words similarity, not a neural model.
 - `POST /v1/index` lives in process memory; it is gone when the server exits.
 - `code` parses Go only.
-- There is no directory batch command and no query CLI yet.
+- There is no query CLI yet.
 
 ## CLI
 
@@ -39,7 +39,7 @@ This is a first cut, not a production RAG platform.
 go run ./cmd/nibble -chunker recursive -size 512 path/to/file.txt
 ```
 
-Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
+Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunks. `-dir` prints `[{"path","chunks"}, ...]`.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -51,6 +51,8 @@ Reads a UTF-8 file, or stdin if no path is given. Prints a JSON array of chunks.
 | `-embedder` | `hashing` | `hashing` or `openai` (used by `semantic` and `-index`) |
 | `-context` | `0` | neighbor tokens copied into `context` (0 disables) |
 | `-context-mode` | `prefix` | `prefix` or `suffix` |
+| `-dir` | | recursive directory (not with a file argument) |
+| `-ext` | `.txt,.md` | extensions for `-dir` |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
