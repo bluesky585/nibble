@@ -254,17 +254,14 @@ func TestRunDir(t *testing.T) {
 		t.Fatalf("exit %d stderr=%s", code, stderr.String())
 	}
 
-	var got []struct {
-		Path   string        `json:"path"`
-		Chunks []chunk.Chunk `json:"chunks"`
-	}
+	var got []chunk.Document
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Path != "a.txt" {
+	if len(got) != 1 || got[0].Path != "a.txt" || got[0].Content != "hello" {
 		t.Fatalf("got %+v", got)
 	}
-	assertchunk.Split(t, "hello", got[0].Chunks)
+	assertchunk.Split(t, got[0].Content, got[0].Chunks)
 }
 
 func TestRunDirAndFile(t *testing.T) {

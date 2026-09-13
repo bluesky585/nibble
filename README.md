@@ -39,7 +39,7 @@ This is a first cut, not a production RAG platform.
 go run ./cmd/nibble -chunker recursive -size 512 path/to/file.txt
 ```
 
-Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunks. `-dir` prints `[{"path","chunks"}, ...]`.
+Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunks. `-dir` prints documents: `[{"path","content","chunks"}, ...]`.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |

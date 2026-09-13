@@ -82,13 +82,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	type fileResult struct {
-		Path   string        `json:"path"`
-		Chunks []chunk.Chunk `json:"chunks"`
-	}
-
 	var all []chunk.Chunk
-	results := make([]fileResult, 0, len(jobs))
+	docs := make([]chunk.Document, 0, len(jobs))
 	for _, job := range jobs {
 		chunks, err := c.Chunk(job.text)
 		if err != nil {
@@ -111,7 +106,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 		}
 		all = append(all, chunks...)
-		results = append(results, fileResult{Path: job.path, Chunks: chunks})
+		docs = append(docs, chunk.NewDocument(job.path, job.text, chunks))
 	}
 
 	if *indexPath != "" {
@@ -130,9 +125,9 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	enc.SetIndent("", "  ")
 	var payload any
 	if *dirPath != "" {
-		payload = results
-	} else if len(results) == 1 {
-		payload = results[0].Chunks
+		payload = docs
+	} else if len(docs) == 1 {
+		payload = docs[0].Chunks
 	} else {
 		payload = []chunk.Chunk{}
 	}
