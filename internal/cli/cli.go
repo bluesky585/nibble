@@ -42,8 +42,31 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	extCSV := fs.String("ext", ".txt,.md", "comma-separated extensions when using -dir")
 	htmlPath := fs.String("html", "", "write an HTML page of the source colored by chunk")
 	embedInJSON := fs.Bool("embed", false, "add an embedding to each chunk in the JSON output (one batch call)")
+	query := fs.String("query", "", "search an -index file for this text and print hits instead of chunking")
+	topK := fs.Int("k", 5, "number of hits for -query")
 
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	emb, err := embed.Lookup(*embedderName)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+
+	// -query searches an existing index. It reads no input, so it must
+	// not wait on stdin, and it does not need a chunker.
+	if *query != "" {
+		if *dirPath != "" || len(fs.Args()) > 0 {
+			fmt.Fprintln(stderr, "-query reads no input; drop -dir and the file argument")
+			return 2
+		}
+		return runQuery(*query, *indexPath, *topK, emb, stdout, stderr)
+	}
+	// Catches `nibble -index x.jsonl -k 3` read as a search.
+	if *topK != 5 {
+		fmt.Fprintln(stderr, "-k is only used with -query")
 		return 2
 	}
 
@@ -56,12 +79,6 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
-	}
-
-	emb, err := embed.Lookup(*embedderName)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
 	}
 
 	c, err := buildchunk.New(*chunkerName, *tokName, *size, *overlap, emb)

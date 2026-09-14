@@ -265,6 +265,35 @@ func (shortEmbedder) Embed(texts []string) ([][]float64, error) {
 	return [][]float64{{0}}, nil
 }
 
+// A query from a different embedder has the wrong width. Cosine would
+// score every record 0 and return a meaningless ranking, so it is an
+// error instead.
+func TestSearchDimensionMismatch(t *testing.T) {
+	t.Parallel()
+
+	mem := &Memory{}
+	if err := Index(mem, embed.Hashing{}, []chunk.Chunk{mustChunk(t, "cats sleep", 0)}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := mem.Search([]float64{1, 2, 3}, 1)
+	if err == nil || !strings.Contains(err.Error(), "dimensions") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// An empty store has nothing to compare against, so any query is fine.
+func TestSearchEmptyStore(t *testing.T) {
+	t.Parallel()
+
+	hits, err := (&Memory{}).Search([]float64{1, 2, 3}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("got %+v", hits)
+	}
+}
+
 func TestSearchBadK(t *testing.T) {
 	t.Parallel()
 
