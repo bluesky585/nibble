@@ -55,6 +55,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-ext` | `.txt,.md` | extensions for `-dir` |
 | `-html` | | write an HTML page of the source colored by chunk |
 | `-embed` | `false` | add an `embedding` to each chunk in the JSON output |
+| `-query` | | search an `-index` file and print hits instead of chunking |
+| `-k` | `5` | number of hits for `-query` |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
@@ -73,6 +75,13 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 `-index` writes chunks plus vectors from the selected embedder to JSONL.
 
 `-embed` puts the vector on each chunk in the JSON on stdout, so you can look at embeddings without writing an index. All chunks are embedded in one batch. With `-index` the vectors are reused rather than computed twice, and are stored once (on the record, not also on the chunk). A chunk's vector is computed from `context + text` where `context` is set, matching what `-index` stores.
+
+`-query` searches an existing index and prints the top `-k` hits as JSON, each with its score and the chunk it points at. It reads no input, so it never waits on stdin. Use the same `-embedder` that built the index: a query embedded by a different model has a different width, and that is reported as an error rather than scored as a meaningless ranking.
+
+```bash
+nibble -index docs.jsonl docs.txt
+nibble -query "how do cats sleep" -index docs.jsonl -k 3
+```
 
 `-context` / `-context-mode` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. This is separate from `-overlap` (token windows).
 

@@ -119,6 +119,16 @@ func searchRecords(records []Record, query []float64, k int) ([]Hit, error) {
 	if k <= 0 {
 		return nil, fmt.Errorf("k must be > 0, got %d", k)
 	}
+	// Cosine scores a dimension mismatch as 0, which would rank every
+	// record equally and look like a valid result. That happens when the
+	// query is embedded by a different model than the index was, so it is
+	// worth an error rather than a silently useless ranking.
+	if len(records) > 0 && len(query) != len(records[0].Vector) {
+		return nil, fmt.Errorf(
+			"query has %d dimensions but the index has %d; the query must use the same embedder as the index",
+			len(query), len(records[0].Vector),
+		)
+	}
 	hits := make([]Hit, 0, len(records))
 	for _, rec := range records {
 		hits = append(hits, Hit{Record: rec, Score: embed.Cosine(query, rec.Vector)})
