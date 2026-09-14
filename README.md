@@ -65,6 +65,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 
 `semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full.
 
+`sentence` and `semantic` cut a single sentence that is over budget on its own into token windows, so a long run without punctuation cannot push a chunk past `-size`. The only chunk that may still exceed `-size` is one holding a single token wider than the budget.
+
 `-embedder hashing` is local and needs no network. `-embedder openai` calls an OpenAI-compatible `/v1/embeddings` API (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`). One HTTP request per batch.
 
 `-index` writes chunks plus vectors from the selected embedder to JSONL.
