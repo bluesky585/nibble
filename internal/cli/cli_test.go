@@ -304,6 +304,82 @@ func TestRunTooManyFiles(t *testing.T) {
 	}
 }
 
+func TestRunHTML(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "out.html")
+	original := "Hello. World."
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-chunker", "sentence", "-size", "64", "-html", outPath},
+		strings.NewReader(original), &stdout, &stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	// stdout is still JSON.
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+
+	b, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	if !strings.HasPrefix(page, "<!DOCTYPE html>") {
+		t.Fatalf("page=%q", page[:40])
+	}
+	if !strings.Contains(page, "Hello. ") {
+		t.Fatal("chunk text missing from the page")
+	}
+}
+
+func TestRunHTMLDir(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(root, "out.html")
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-chunker", "token", "-size", "64", "-dir", root, "-ext", ".txt", "-html", outPath},
+		strings.NewReader(""), &stdout, &stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	b, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "a.txt") {
+		t.Fatal("document path missing from the page")
+	}
+}
+
+func TestRunHTMLBadPath(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-html", filepath.Join(t.TempDir(), "missing", "out.html")},
+		strings.NewReader("hi"), &stdout, &stderr,
+	)
+	if code != 1 {
+		t.Fatalf("exit %d want 1 stderr=%s", code, stderr.String())
+	}
+}
+
 func TestRunEmpty(t *testing.T) {
 	t.Parallel()
 

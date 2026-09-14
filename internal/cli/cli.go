@@ -16,6 +16,7 @@ import (
 	olap "github.com/bluesky585/nibble/pkg/overlap"
 	"github.com/bluesky585/nibble/pkg/store"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
+	"github.com/bluesky585/nibble/pkg/visualize"
 )
 
 // Run parses args, chunks input, and writes JSON chunks to stdout.
@@ -39,6 +40,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	contextMode := fs.String("context-mode", "prefix", "prefix or suffix (used with -context)")
 	dirPath := fs.String("dir", "", "directory to chunk (recursive; not with a file argument)")
 	extCSV := fs.String("ext", ".txt,.md", "comma-separated extensions when using -dir")
+	htmlPath := fs.String("html", "", "write an HTML page of the source colored by chunk")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -121,6 +123,13 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
+	if *htmlPath != "" {
+		if err := writeHTML(*htmlPath, docs); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+
 	enc := json.NewEncoder(stdout)
 	enc.SetIndent("", "  ")
 	var payload any
@@ -136,6 +145,19 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// writeHTML renders docs to path. The JSON on stdout is unaffected.
+func writeHTML(path string, docs []chunk.Document) error {
+	pages := make([]visualize.Doc, 0, len(docs))
+	for _, d := range docs {
+		pages = append(pages, visualize.NewDoc(d.Path, d.Content, d.Chunks))
+	}
+	out, err := visualize.HTML(pages)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(out), 0o644)
 }
 
 type inputJob struct {
