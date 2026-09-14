@@ -19,6 +19,18 @@ type Chunk struct {
 	// Context is extra text for retrieval (for example a table header).
 	// It is not part of Text and is ignored by reconstruct checks.
 	Context string `json:"context,omitempty"`
+	// Embedding is the vector for this chunk, filled in only when asked
+	// for. It is not part of reconstruct checks and is omitted when unset.
+	Embedding []float64 `json:"embedding,omitempty"`
+}
+
+// EmbedText is the text an embedder should see. Context is prefixed onto
+// Text when present, so a chunk carrying a table header embeds both.
+func (c Chunk) EmbedText() string {
+	if c.Context == "" {
+		return c.Text
+	}
+	return c.Context + c.Text
 }
 
 // New builds a Chunk and checks its invariants.

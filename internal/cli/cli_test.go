@@ -304,6 +304,86 @@ func TestRunTooManyFiles(t *testing.T) {
 	}
 }
 
+func TestRunEmbed(t *testing.T) {
+	t.Parallel()
+
+	original := "Hello. World."
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-chunker", "sentence", "-size", "64", "-embed"},
+		strings.NewReader(original), &stdout, &stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+	for i, c := range chunks {
+		if len(c.Embedding) == 0 {
+			t.Fatalf("chunk %d has no embedding", i)
+		}
+	}
+}
+
+// Without -embed the JSON must not grow an embedding field.
+func TestRunEmbedOffByDefault(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "sentence", "-size", "64"}, strings.NewReader("Hi. Yo."), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "embedding") {
+		t.Fatalf("embedding should be absent: %s", stdout.String())
+	}
+}
+
+// -embed together with -index must store usable vectors, and must not
+// keep a second copy on the chunk itself.
+func TestRunEmbedAndIndexReuse(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	original := "Cats sleep. Cats eat."
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-chunker", "sentence", "-size", "64", "-embed", "-index", path},
+		strings.NewReader(original), &stdout, &stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+
+	st, err := store.OpenJSONL(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := embed.Hashing{}.Embed([]string{"cats"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := st.Search(q[0], 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("got %+v", hits)
+	}
+	// The vector was stored once, on the record, not on the chunk too.
+	if len(hits[0].Record.Chunk.Embedding) != 0 {
+		t.Fatal("stored chunk should not repeat its vector")
+	}
+	if len(hits[0].Record.Vector) == 0 {
+		t.Fatal("record has no vector")
+	}
+}
+
 func TestRunHTML(t *testing.T) {
 	t.Parallel()
 

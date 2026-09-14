@@ -111,7 +111,55 @@ func TestChunkJSON(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got != c {
+	if got.Text != c.Text || got.Start != c.Start || got.End != c.End ||
+		got.TokenCount != c.TokenCount || got.Context != c.Context ||
+		len(got.Embedding) != 0 {
 		t.Fatalf("round trip: got %+v want %+v", got, c)
+	}
+}
+
+// An unset Embedding must not appear in JSON.
+func TestChunkEmbeddingOmitted(t *testing.T) {
+	t.Parallel()
+
+	c, err := New("abc", 0, 3, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "embedding") {
+		t.Fatalf("unset embedding should be omitted: %s", raw)
+	}
+
+	c.Embedding = []float64{0.5, 0.25}
+	raw, err = json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Chunk
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Embedding) != 2 || got.Embedding[0] != 0.5 || got.Embedding[1] != 0.25 {
+		t.Fatalf("embedding round trip: %+v", got.Embedding)
+	}
+}
+
+func TestChunkEmbedText(t *testing.T) {
+	t.Parallel()
+
+	c, err := New("row", 0, 3, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.EmbedText(); got != "row" {
+		t.Fatalf("no context: got %q", got)
+	}
+	c.Context = "| h |\n"
+	if got := c.EmbedText(); got != "| h |\nrow" {
+		t.Fatalf("with context: got %q", got)
 	}
 }
