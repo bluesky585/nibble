@@ -302,3 +302,41 @@ func TestSearchBadK(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// A run larger than one request must be split into bounded batches, and the
+// vectors must still land on the chunk they came from.
+func TestEmbedSplitsLargeRuns(t *testing.T) {
+	t.Parallel()
+
+	n := embedBatchSize*2 + 1
+	chunks := make([]chunk.Chunk, n)
+	for i := range chunks {
+		chunks[i] = mustChunk(t, "text", i)
+	}
+
+	counter := &countingEmbedder{}
+	got, err := Embed(counter, chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counter.calls != 3 {
+		t.Fatalf("calls=%d want 3 for %d chunks", counter.calls, n)
+	}
+	want := []int{embedBatchSize, embedBatchSize, 1}
+	for i, size := range counter.sizes {
+		if size != want[i] {
+			t.Fatalf("batch %d size=%d want %d (all %v)", i, size, want[i], counter.sizes)
+		}
+	}
+	// countingEmbedder vectors encode the position inside their batch, so a
+	// misplaced batch or slot would show up as a wrong value here.
+	for i, c := range got {
+		inBatch := i % embedBatchSize
+		if len(c.Embedding) != 1 || c.Embedding[0] != float64(inBatch) {
+			t.Fatalf("chunk %d embedding=%v want [%d]", i, c.Embedding, inBatch)
+		}
+		if c.Text != chunks[i].Text {
+			t.Fatalf("chunk %d text changed", i)
+		}
+	}
+}

@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -470,5 +473,81 @@ func TestRunEmpty(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != "[]" {
 		t.Fatalf("stdout=%s", stdout.String())
+	}
+}
+
+// -dir with -embed must send one embedding batch for the whole run, not
+// one per file. The server counts requests, so restoring per-file
+// embedding fails here.
+func TestRunEmbedDirUsesOneBatch(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("Cats sleep. Cats eat."), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+			return
+		}
+		var req struct {
+			Input []string `json:"input"`
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		resp := struct {
+			Data []map[string]any `json:"data"`
+		}{}
+		for i := range req.Input {
+			resp.Data = append(resp.Data, map[string]any{
+				"index":     i,
+				"embedding": []float64{1, 0},
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	t.Setenv("OPENAI_BASE_URL", srv.URL)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-chunker", "sentence", "-size", "64", "-embedder", "openai", "-embed", "-dir", dir},
+		strings.NewReader(""), &stdout, &stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+	if calls != 1 {
+		t.Fatalf("embedding requests=%d, want 1 for the whole run", calls)
+	}
+
+	// Nothing may be lost by embedding in one pass: every chunk of every
+	// document still carries a vector, and the text is still a real split.
+	var docs []chunk.Document
+	if err := json.Unmarshal(stdout.Bytes(), &docs); err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 3 {
+		t.Fatalf("documents=%d want 3", len(docs))
+	}
+	for _, d := range docs {
+		assertchunk.Split(t, d.Content, d.Chunks)
+		for i, c := range d.Chunks {
+			if len(c.Embedding) == 0 {
+				t.Fatalf("%s chunk %d has no embedding", d.Path, i)
+			}
+		}
 	}
 }

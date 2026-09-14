@@ -27,41 +27,15 @@ type Store interface {
 	Search(query []float64, k int) ([]Hit, error)
 }
 
-// Index embeds chunks in one batch and writes them to st.
+// embedBatchSize caps how many texts go into one Embedder.Embed call. The
+// OpenAI embeddings API rejects a request that carries too many inputs, so a
+// large run is split into bounded batches rather than one unbounded call or
+// one call per chunk.
+const embedBatchSize = 256
+
+// Embed fills in each chunk's Embedding and returns the chunks. Unlike Index
+// it persists nothing, so the vectors can be inspected without a store.
 // Context is prefixed onto the embedded text when present.
-func Index(st Store, emb embed.Embedder, chunks []chunk.Chunk) error {
-	if st == nil {
-		return fmt.Errorf("store is required")
-	}
-	if emb == nil {
-		return fmt.Errorf("embedder is required")
-	}
-	if len(chunks) == 0 {
-		return nil
-	}
-
-	texts := make([]string, len(chunks))
-	for i, ch := range chunks {
-		texts[i] = ch.EmbedText()
-	}
-	vecs, err := emb.Embed(texts)
-	if err != nil {
-		return err
-	}
-	if len(vecs) != len(chunks) {
-		return fmt.Errorf("embedder returned %d vectors for %d chunks", len(vecs), len(chunks))
-	}
-
-	records := make([]Record, len(chunks))
-	for i := range chunks {
-		records[i] = Record{Chunk: chunks[i], Vector: vecs[i]}
-	}
-	return st.Upsert(records)
-}
-
-// Embed fills in each chunk's Embedding in one batch call to emb and
-// returns the chunks. Unlike Index it persists nothing, so the vectors
-// can be inspected without a store.
 func Embed(emb embed.Embedder, chunks []chunk.Chunk) ([]chunk.Chunk, error) {
 	if emb == nil {
 		return nil, fmt.Errorf("embedder is required")
@@ -70,24 +44,43 @@ func Embed(emb embed.Embedder, chunks []chunk.Chunk) ([]chunk.Chunk, error) {
 		return chunks, nil
 	}
 
-	texts := make([]string, len(chunks))
-	for i, ch := range chunks {
-		texts[i] = ch.EmbedText()
-	}
-	vecs, err := emb.Embed(texts)
-	if err != nil {
-		return nil, err
-	}
-	if len(vecs) != len(chunks) {
-		return nil, fmt.Errorf("embedder returned %d vectors for %d chunks", len(vecs), len(chunks))
-	}
-
 	out := make([]chunk.Chunk, len(chunks))
 	copy(out, chunks)
-	for i := range out {
-		out[i].Embedding = vecs[i]
+	for start := 0; start < len(out); start += embedBatchSize {
+		end := start + embedBatchSize
+		if end > len(out) {
+			end = len(out)
+		}
+		texts := make([]string, end-start)
+		for i := start; i < end; i++ {
+			texts[i-start] = out[i].EmbedText()
+		}
+		vecs, err := emb.Embed(texts)
+		if err != nil {
+			return nil, err
+		}
+		if len(vecs) != len(texts) {
+			return nil, fmt.Errorf("embedder returned %d vectors for %d chunks", len(vecs), len(texts))
+		}
+		for i := start; i < end; i++ {
+			out[i].Embedding = vecs[i-start]
+		}
 	}
 	return out, nil
+}
+
+// Index embeds chunks and writes them to st. It is Embed followed by
+// IndexEmbedded, so a chunk is embedded from the same text and batched the
+// same way, and there is one definition of what gets embedded.
+func Index(st Store, emb embed.Embedder, chunks []chunk.Chunk) error {
+	if st == nil {
+		return fmt.Errorf("store is required")
+	}
+	embedded, err := Embed(emb, chunks)
+	if err != nil {
+		return err
+	}
+	return IndexEmbedded(st, embedded)
 }
 
 // IndexEmbedded writes chunks that already carry an Embedding, so a
