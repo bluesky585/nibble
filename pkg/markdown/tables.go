@@ -30,12 +30,8 @@ func Tables(text string) []Table {
 		}
 		end := tableEnd(lines, i)
 		seg := lines[i:end]
-		var b strings.Builder
-		for _, l := range seg {
-			b.WriteString(l.Text)
-		}
 		out = append(out, Table{
-			Text:  b.String(),
+			Text:  joinLines(seg),
 			Start: seg[0].Start,
 			End:   seg[len(seg)-1].End,
 		})
@@ -68,6 +64,14 @@ func splitLines(text string) []line {
 		out = append(out, line{Text: text[startB:], Start: startR, End: r})
 	}
 	return out
+}
+
+func joinLines(seg []line) string {
+	var b strings.Builder
+	for _, l := range seg {
+		b.WriteString(l.Text)
+	}
+	return b.String()
 }
 
 func isTableStart(lines []line, i int) bool {
