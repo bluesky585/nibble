@@ -42,11 +42,7 @@ func Index(st Store, emb embed.Embedder, chunks []chunk.Chunk) error {
 
 	texts := make([]string, len(chunks))
 	for i, ch := range chunks {
-		if ch.Context != "" {
-			texts[i] = ch.Context + ch.Text
-		} else {
-			texts[i] = ch.Text
-		}
+		texts[i] = ch.EmbedText()
 	}
 	vecs, err := emb.Embed(texts)
 	if err != nil {
@@ -59,6 +55,62 @@ func Index(st Store, emb embed.Embedder, chunks []chunk.Chunk) error {
 	records := make([]Record, len(chunks))
 	for i := range chunks {
 		records[i] = Record{Chunk: chunks[i], Vector: vecs[i]}
+	}
+	return st.Upsert(records)
+}
+
+// Embed fills in each chunk's Embedding in one batch call to emb and
+// returns the chunks. Unlike Index it persists nothing, so the vectors
+// can be inspected without a store.
+func Embed(emb embed.Embedder, chunks []chunk.Chunk) ([]chunk.Chunk, error) {
+	if emb == nil {
+		return nil, fmt.Errorf("embedder is required")
+	}
+	if len(chunks) == 0 {
+		return chunks, nil
+	}
+
+	texts := make([]string, len(chunks))
+	for i, ch := range chunks {
+		texts[i] = ch.EmbedText()
+	}
+	vecs, err := emb.Embed(texts)
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) != len(chunks) {
+		return nil, fmt.Errorf("embedder returned %d vectors for %d chunks", len(vecs), len(chunks))
+	}
+
+	out := make([]chunk.Chunk, len(chunks))
+	copy(out, chunks)
+	for i := range out {
+		out[i].Embedding = vecs[i]
+	}
+	return out, nil
+}
+
+// IndexEmbedded writes chunks that already carry an Embedding, so a
+// caller that ran Embed does not pay for a second batch. Every chunk
+// must have a vector.
+func IndexEmbedded(st Store, chunks []chunk.Chunk) error {
+	if st == nil {
+		return fmt.Errorf("store is required")
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	records := make([]Record, len(chunks))
+	for i, ch := range chunks {
+		if len(ch.Embedding) == 0 {
+			return fmt.Errorf("chunk %d has no embedding", i)
+		}
+		// Drop the vector from the stored copy: Record keeps it in its
+		// own field, and duplicating it would double every JSONL line.
+		c := ch
+		c.Embedding = nil
+		records[i] = Record{Chunk: c, Vector: ch.Embedding}
 	}
 	return st.Upsert(records)
 }

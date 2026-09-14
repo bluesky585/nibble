@@ -41,6 +41,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	dirPath := fs.String("dir", "", "directory to chunk (recursive; not with a file argument)")
 	extCSV := fs.String("ext", ".txt,.md", "comma-separated extensions when using -dir")
 	htmlPath := fs.String("html", "", "write an HTML page of the source colored by chunk")
+	embedInJSON := fs.Bool("embed", false, "add an embedding to each chunk in the JSON output (one batch call)")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -107,6 +108,15 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return 2
 			}
 		}
+		// Embed after overlap so the vector sees the same text that
+		// store.Index would embed, including any Context.
+		if *embedInJSON {
+			chunks, err = store.Embed(emb, chunks)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+		}
 		all = append(all, chunks...)
 		docs = append(docs, chunk.NewDocument(job.path, job.text, chunks))
 	}
@@ -117,7 +127,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := store.Index(st, emb, all); err != nil {
+		if err := indexChunks(st, emb, all, *embedInJSON); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -145,6 +155,15 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// indexChunks writes chunks to st. When the chunks already carry
+// vectors from -embed they are reused, so no second batch is sent.
+func indexChunks(st store.Store, emb embed.Embedder, chunks []chunk.Chunk, preEmbedded bool) error {
+	if preEmbedded {
+		return store.IndexEmbedded(st, chunks)
+	}
+	return store.Index(st, emb, chunks)
 }
 
 // writeHTML renders docs to path. The JSON on stdout is unaffected.

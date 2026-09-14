@@ -54,6 +54,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-dir` | | recursive directory (not with a file argument) |
 | `-ext` | `.txt,.md` | extensions for `-dir` |
 | `-html` | | write an HTML page of the source colored by chunk |
+| `-embed` | `false` | add an `embedding` to each chunk in the JSON output |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
@@ -70,6 +71,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 `-embedder hashing` is local and needs no network. `-embedder openai` calls an OpenAI-compatible `/v1/embeddings` API (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`). One HTTP request per batch.
 
 `-index` writes chunks plus vectors from the selected embedder to JSONL.
+
+`-embed` puts the vector on each chunk in the JSON on stdout, so you can look at embeddings without writing an index. All chunks are embedded in one batch. With `-index` the vectors are reused rather than computed twice, and are stored once (on the record, not also on the chunk). A chunk's vector is computed from `context + text` where `context` is set, matching what `-index` stores.
 
 `-context` / `-context-mode` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. This is separate from `-overlap` (token windows).
 
