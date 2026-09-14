@@ -53,6 +53,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-context-mode` | `prefix` | `prefix` or `suffix` |
 | `-dir` | | recursive directory (not with a file argument) |
 | `-ext` | `.txt,.md` | extensions for `-dir` |
+| `-html` | | write an HTML page of the source colored by chunk |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
@@ -69,6 +70,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 `-index` writes chunks plus vectors from the selected embedder to JSONL.
 
 `-context` / `-context-mode` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. This is separate from `-overlap` (token windows).
+
+`-html out.html` writes a self-contained page showing the source text colored by chunk, alongside a legend of offsets and token counts. It is a way to eyeball a split rather than count it. stdout is still the usual JSON. The page always reads exactly as the source, so it doubles as a check: overlapping chunks show their repeated part once and are flagged, text no chunk covers is hatched, and a chunk whose offsets disagree with the source is flagged rather than trusted.
 
 ## HTTP API
 
