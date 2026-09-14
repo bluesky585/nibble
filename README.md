@@ -9,9 +9,9 @@ The name means a small bite: chunks should be small enough to retrieve on their 
 Requires Go 1.26+.
 
 ```bash
-go get github.com/bluesky585/nibble@v0.1.0
-go install github.com/bluesky585/nibble/cmd/nibble@v0.1.0
-go install github.com/bluesky585/nibble/cmd/nibble-api@v0.1.0
+go get github.com/bluesky585/nibble@v0.2.0
+go install github.com/bluesky585/nibble/cmd/nibble@v0.2.0
+go install github.com/bluesky585/nibble/cmd/nibble-api@v0.2.0
 ```
 
 ## Principles
