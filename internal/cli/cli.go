@@ -125,17 +125,29 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return 2
 			}
 		}
-		// Embed after overlap so the vector sees the same text that
-		// store.Index would embed, including any Context.
-		if *embedInJSON {
-			chunks, err = store.Embed(emb, chunks)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
-		}
 		all = append(all, chunks...)
 		docs = append(docs, chunk.NewDocument(job.path, job.text, chunks))
+	}
+
+	// Embedding runs once over every chunk of every input, after overlap so
+	// a vector sees the same text store.Index would embed, including any
+	// Context. Doing it per job would send one batch per file, which for the
+	// OpenAI embedder is one request per file.
+	if *embedInJSON {
+		embedded, err := store.Embed(emb, all)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		all = embedded
+		// docs holds per-file chunks, so hand each one back the slice that
+		// was embedded. Slicing a nil all (no inputs) yields an empty set.
+		at := 0
+		for i := range docs {
+			n := len(docs[i].Chunks)
+			docs[i].Chunks = all[at : at+n : at+n]
+			at += n
+		}
 	}
 
 	if *indexPath != "" {
