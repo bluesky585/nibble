@@ -25,13 +25,20 @@ go install github.com/bluesky585/nibble/cmd/nibble-api@v0.1.0
 
 ## v0.1 status
 
-This is a first cut, not a production RAG platform.
+This is a first cut, not a production RAG platform. Chunking is the
+finished part; retrieval is enough to try, not enough to deploy.
 
-- Default tokenizer counts runes, not tiktoken.
+- Default tokenizer counts runes, not tiktoken, so `-size` is not a
+  model's token budget out of the box.
 - `-embedder hashing` is bag-of-words similarity, not a neural model.
-- `POST /v1/index` lives in process memory; it is gone when the server exits.
+  `-embedder openai` is a real model and needs network and a key.
+- The only store is a JSONL file scanned linearly, so search is brute
+  force over whatever the file holds.
+- `POST /v1/index` keeps vectors in process memory; they are gone when
+  the server exits.
 - `code` parses Go only.
-- There is no query CLI yet.
+- A query must use the same embedder that built the index; a mismatch is
+  reported rather than scored.
 
 ## CLI
 
