@@ -8,6 +8,7 @@ import (
 	"github.com/bluesky585/nibble/pkg/codechunker"
 	"github.com/bluesky585/nibble/pkg/embed"
 	"github.com/bluesky585/nibble/pkg/fastchunker"
+	"github.com/bluesky585/nibble/pkg/markdownchunker"
 	"github.com/bluesky585/nibble/pkg/recursive"
 	"github.com/bluesky585/nibble/pkg/semantic"
 	"github.com/bluesky585/nibble/pkg/sentencechunker"
@@ -24,6 +25,8 @@ type Chunker interface {
 // New builds a chunker. overlap is valid only for the token chunker.
 // The tokenizer is ignored when chunkerName is "fast"; size is then a
 // byte budget, while chunk offsets remain runes.
+// "markdown" routes regions of a document to the code, table, and
+// recursive chunkers; the tokenizer applies to its prose and code parts.
 // emb is used by the semantic chunker; nil means embed.Hashing.
 func New(chunkerName, tokName string, size, overlap int, emb embed.Embedder) (Chunker, error) {
 	if chunkerName == "fast" {
@@ -61,6 +64,11 @@ func New(chunkerName, tokName string, size, overlap int, emb embed.Embedder) (Ch
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
 		}
 		return codechunker.New(tok, size)
+	case "markdown":
+		if overlap != 0 {
+			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		return markdownchunker.New(tok, size)
 	case "semantic":
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
