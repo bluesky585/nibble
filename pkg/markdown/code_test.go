@@ -62,6 +62,41 @@ func TestCodeBlocksTwo(t *testing.T) {
 	}
 }
 
+func TestCodeBlocksInnerSpan(t *testing.T) {
+	t.Parallel()
+
+	original := "intro\n```go\nfunc A() {}\n```\noutro\n"
+	got := CodeBlocks(original)
+	if len(got) != 1 {
+		t.Fatalf("len=%d", len(got))
+	}
+	runes := []rune(original)
+	body := string(runes[got[0].InnerStart:got[0].InnerEnd])
+	if body != "func A() {}\n" {
+		t.Fatalf("inner=%q want %q", body, "func A() {}\n")
+	}
+	if got[0].InnerStart <= got[0].Start || got[0].InnerEnd >= got[0].End {
+		t.Fatalf("inner [%d,%d) must sit inside [%d,%d)",
+			got[0].InnerStart, got[0].InnerEnd, got[0].Start, got[0].End)
+	}
+}
+
+func TestCodeBlocksEmptyBody(t *testing.T) {
+	t.Parallel()
+
+	original := "```\n```\n"
+	got := CodeBlocks(original)
+	if len(got) != 1 {
+		t.Fatalf("len=%d", len(got))
+	}
+	if got[0].InnerStart != got[0].InnerEnd {
+		t.Fatalf("empty body should collapse: [%d,%d)", got[0].InnerStart, got[0].InnerEnd)
+	}
+	if got[0].InnerStart != got[0].Start+4 {
+		t.Fatalf("inner start=%d want %d", got[0].InnerStart, got[0].Start+4)
+	}
+}
+
 func TestCodeBlocksUnclosed(t *testing.T) {
 	t.Parallel()
 

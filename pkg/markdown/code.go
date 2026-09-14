@@ -8,6 +8,10 @@ type Code struct {
 	Language string
 	Start    int
 	End      int
+	// InnerStart and InnerEnd bound the body between the fence lines.
+	// Both equal the end of the opening fence line when the body is empty.
+	InnerStart int
+	InnerEnd   int
 }
 
 // CodeBlocks returns backtick-fenced code blocks in order.
@@ -28,11 +32,18 @@ func CodeBlocks(text string) []Code {
 			continue
 		}
 		seg := lines[i : j+1]
+		innerStart, innerEnd := seg[0].End, seg[0].End
+		if body := lines[i+1 : j]; len(body) > 0 {
+			innerStart = body[0].Start
+			innerEnd = body[len(body)-1].End
+		}
 		out = append(out, Code{
-			Text:     joinLines(seg),
-			Language: lang,
-			Start:    seg[0].Start,
-			End:      seg[len(seg)-1].End,
+			Text:       joinLines(seg),
+			Language:   lang,
+			Start:      seg[0].Start,
+			End:        seg[len(seg)-1].End,
+			InnerStart: innerStart,
+			InnerEnd:   innerEnd,
 		})
 		i = j
 	}
