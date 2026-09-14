@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
+	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
 
@@ -46,7 +47,9 @@ func TestChunkPacksSentences(t *testing.T) {
 	}
 }
 
-func TestChunkOversizedSentence(t *testing.T) {
+// A sentence over budget on its own is cut into token windows instead of
+// being emitted whole, so no chunk exceeds size.
+func TestChunkOversizedSentenceIsHardSplit(t *testing.T) {
 	t.Parallel()
 
 	c, err := New(tokenizer.Character{}, 4, nil)
@@ -59,10 +62,74 @@ func TestChunkOversizedSentence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// "Hello." is 6 runes > 4, emitted whole; " Hi." is 4.
 	assertchunk.Split(t, original, got)
-	if len(got) != 2 || got[0].Text != "Hello." || got[1].Text != " Hi." {
-		t.Fatalf("got %+v", got)
+	// "Hello." is 6 runes > 4, so it becomes "Hell" + "o.".
+	if len(got) != 3 {
+		t.Fatalf("len=%d want 3, got %+v", len(got), got)
+	}
+	if got[0].Text != "Hell" || got[1].Text != "o." {
+		t.Fatalf("hard split wrong: %+v", got[:2])
+	}
+	assertNoChunkOver(t, got, 4)
+}
+
+// The oversized sentence keeps its place in the document: its windows
+// carry the sentence's own offsets, not zero-based ones.
+func TestChunkOversizedSentenceOffsets(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := "Hi. Hello there."
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	assertNoChunkOver(t, got, 3)
+	// "Hi." is 3 runes, so the next sentence starts at rune 3. Its
+	// windows must carry that offset, not zero.
+	if got[0].Text != "Hi." || got[0].Start != 0 || got[0].End != 3 {
+		t.Fatalf("first chunk=%+v", got[0])
+	}
+	if got[1].Start != 3 {
+		t.Fatalf("second chunk start=%d want 3: %+v", got[1].Start, got[1])
+	}
+	if got[1].Text != " He" {
+		t.Fatalf("second chunk text=%q want %q", got[1].Text, " He")
+	}
+}
+
+// A run of text with no sentence delimiter is still bounded by size.
+func TestChunkNoDelimiterOverBudget(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 4, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := "abcdefghij"
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	assertNoChunkOver(t, got, 4)
+	if len(got) != 3 {
+		t.Fatalf("len=%d want 3, got %+v", len(got), got)
+	}
+}
+
+func assertNoChunkOver(t *testing.T, chunks []chunk.Chunk, size int) {
+	t.Helper()
+	for _, ch := range chunks {
+		if ch.TokenCount > size {
+			t.Fatalf("chunk %q has %d tokens, over size %d", ch.Text, ch.TokenCount, size)
+		}
 	}
 }
 
@@ -99,10 +166,11 @@ func TestChunkEmpty(t *testing.T) {
 	assertchunk.Split(t, "", got)
 }
 
+// Text with no delimiter under the budget stays a single chunk.
 func TestChunkNoSentenceDelim(t *testing.T) {
 	t.Parallel()
 
-	c, err := New(tokenizer.Character{}, 8, nil)
+	c, err := New(tokenizer.Character{}, 64, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

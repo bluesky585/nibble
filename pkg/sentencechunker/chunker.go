@@ -8,6 +8,7 @@ import (
 
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/split"
+	"github.com/bluesky585/nibble/pkg/tokenchunker"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
 
@@ -15,11 +16,13 @@ import (
 var DefaultDelimiters = []string{"。", "！", "？", ".", "!", "?"}
 
 // Chunker splits on sentence delimiters and merges until Size tokens.
-// A single sentence longer than Size is emitted whole.
+// A single sentence longer than Size is cut into token windows, so no
+// chunk exceeds Size unless one token does.
 type Chunker struct {
 	tok    tokenizer.Tokenizer
 	size   int
 	delims []string
+	hard   tokenchunker.Chunker
 }
 
 // New builds a Chunker. delims defaults to DefaultDelimiters when empty.
@@ -33,7 +36,11 @@ func New(tok tokenizer.Tokenizer, size int, delims []string) (Chunker, error) {
 	if len(delims) == 0 {
 		delims = append([]string(nil), DefaultDelimiters...)
 	}
-	return Chunker{tok: tok, size: size, delims: delims}, nil
+	hard, err := tokenchunker.New(tok, size, 0)
+	if err != nil {
+		return Chunker{}, err
+	}
+	return Chunker{tok: tok, size: size, delims: delims, hard: hard}, nil
 }
 
 // Chunk splits text into sentence-packed windows.
@@ -80,11 +87,40 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 				return nil, err
 			}
 		}
+		// A sentence that is over budget on its own cannot be packed.
+		// Cut it into token windows instead of emitting it whole.
+		if n > c.size {
+			more, err := c.hardSplit(p)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, more...)
+			continue
+		}
 		buf = append(buf, p)
 		tokens += n
 	}
 	if err := flush(); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+// hardSplit cuts one oversized sentence into token windows, shifting the
+// window offsets from the sentence into the document.
+func (c Chunker) hardSplit(p split.Piece) ([]chunk.Chunk, error) {
+	chunks, err := c.hard.Chunk(p.Text)
+	if err != nil {
+		return nil, err
+	}
+	if p.Start == 0 {
+		return chunks, nil
+	}
+	out := make([]chunk.Chunk, len(chunks))
+	for i, ch := range chunks {
+		ch.Start += p.Start
+		ch.End += p.Start
+		out[i] = ch
 	}
 	return out, nil
 }

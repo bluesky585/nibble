@@ -9,18 +9,21 @@ import (
 	"github.com/bluesky585/nibble/pkg/embed"
 	"github.com/bluesky585/nibble/pkg/sentencechunker"
 	"github.com/bluesky585/nibble/pkg/split"
+	"github.com/bluesky585/nibble/pkg/tokenchunker"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
 
 const defaultMinSim = 0.5
 
 // Chunker splits on sentences, then starts a new chunk when the next
-// sentence is dissimilar or the token budget is full.
+// sentence is dissimilar or the token budget is full. A sentence over
+// budget on its own is cut into token windows.
 type Chunker struct {
 	tok    tokenizer.Tokenizer
 	emb    embed.Embedder
 	size   int
 	minSim float64
+	hard   tokenchunker.Chunker
 }
 
 // New builds a Chunker. minSim 0 uses 0.5. Similarity is cosine in [0, 1]
@@ -41,7 +44,11 @@ func New(tok tokenizer.Tokenizer, emb embed.Embedder, size int, minSim float64) 
 	if minSim < 0 || minSim > 1 {
 		return Chunker{}, fmt.Errorf("minSim must be in [0, 1], got %v", minSim)
 	}
-	return Chunker{tok: tok, emb: emb, size: size, minSim: minSim}, nil
+	hard, err := tokenchunker.New(tok, size, 0)
+	if err != nil {
+		return Chunker{}, err
+	}
+	return Chunker{tok: tok, emb: emb, size: size, minSim: minSim, hard: hard}, nil
 }
 
 // Chunk splits text. Sentence embeddings are requested in one batch.
@@ -102,11 +109,40 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 				}
 			}
 		}
+		// A sentence over budget on its own cannot be packed. Cut it
+		// into token windows instead of emitting it whole.
+		if n > c.size {
+			more, err := c.hardSplit(p)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, more...)
+			continue
+		}
 		buf = append(buf, p)
 		tokens += n
 	}
 	if err := flush(); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+// hardSplit cuts one oversized sentence into token windows, shifting the
+// window offsets from the sentence into the document.
+func (c Chunker) hardSplit(p split.Piece) ([]chunk.Chunk, error) {
+	chunks, err := c.hard.Chunk(p.Text)
+	if err != nil {
+		return nil, err
+	}
+	if p.Start == 0 {
+		return chunks, nil
+	}
+	out := make([]chunk.Chunk, len(chunks))
+	for i, ch := range chunks {
+		ch.Start += p.Start
+		ch.End += p.Start
+		out[i] = ch
 	}
 	return out, nil
 }

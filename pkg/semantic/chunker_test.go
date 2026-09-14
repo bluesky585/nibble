@@ -72,6 +72,35 @@ func TestChunkRespectsSize(t *testing.T) {
 	}
 }
 
+// A sentence over budget on its own is cut into token windows, so no
+// chunk exceeds size even when similarity would otherwise keep it whole.
+func TestChunkOversizedSentenceIsHardSplit(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, embed.Hashing{}, 4, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := "abcdefghij"
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	if len(got) != 3 {
+		t.Fatalf("len=%d want 3, got %+v", len(got), got)
+	}
+	for _, ch := range got {
+		if ch.TokenCount > 4 {
+			t.Fatalf("chunk %q has %d tokens, over size 4", ch.Text, ch.TokenCount)
+		}
+	}
+	if got[1].Start != 4 {
+		t.Fatalf("window offsets must follow the document: %+v", got[1])
+	}
+}
+
 func TestChunkEmpty(t *testing.T) {
 	t.Parallel()
 
