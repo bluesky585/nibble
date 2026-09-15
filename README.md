@@ -21,7 +21,7 @@ go install github.com/bluesky585/nibble/cmd/nibble-api@v0.2.0
 - **Deterministic.** The same input and config always produce the same chunks.
 - **Separate measures.** Characters, bytes, and tokens are different rulers. Do not mix them.
 - **Small core.** Chunking is the product. Embeddings and stores are swap-in interfaces, not a catalog of vendors.
-- **One dependency, isolated.** The library is standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package; it lives in `pkg/tokenizer/tiktoken` and nothing else imports it, so `pkg/tokenizer` and every chunker still build with no dependency.
+- **One dependency, isolated.** The chunkers are standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package, and it is quarantined in `pkg/tokenizer/tiktoken`: every chunker, and `pkg/tokenizer` itself, still builds with no dependency. The programs import it, since a flag has to reach the tokenizer it names.
 - **English only.** Code, comments, commit messages, and docs in this repo are written in English.
 
 ## v0.1 status

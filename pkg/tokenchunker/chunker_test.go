@@ -201,3 +201,78 @@ func TestChunkTokenCount(t *testing.T) {
 		t.Fatalf("token counts %+v %+v", got[0], got[1])
 	}
 }
+
+// emptyPieceTokenizer reports a fixed number of empty pieces in front of one
+// real piece, which is the shape a BPE tokenizer produces when a character is
+// wider than the window: the bytes of the character arrive as several tokens,
+// only the last of which completes a rune.
+type emptyPieceTokenizer struct {
+	empty int
+	text  string
+}
+
+func (t emptyPieceTokenizer) Split(text string) []string {
+	if text != t.text {
+		return []string{text}
+	}
+	parts := make([]string, 0, t.empty+1)
+	for i := 0; i < t.empty; i++ {
+		parts = append(parts, "")
+	}
+	return append(parts, text)
+}
+
+func (t emptyPieceTokenizer) Count(text string) int {
+	return len(t.Split(text))
+}
+
+// A window made only of empty pieces covers no runes. Emitting it would
+// produce a chunk whose text is empty and whose range is empty but whose
+// token count is not, which is exactly the kind of chunk a caller cannot use.
+func TestChunkSkipsWindowWithNoRunes(t *testing.T) {
+	t.Parallel()
+
+	// "你好" arrives as three pieces, two of them empty, so a window of 2
+	// tokens can be two empty pieces and span nothing.
+	tok := emptyPieceTokenizer{empty: 2, text: "你好"}
+	c, err := New(tok, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Chunk("你好")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, "你好", got)
+	for i, ch := range got {
+		if ch.Start == ch.End {
+			t.Fatalf("chunk %d is empty: %+v", i, ch)
+		}
+		if ch.Text == "" {
+			t.Fatalf("chunk %d has no text: %+v", i, ch)
+		}
+	}
+}
+
+// The same shape, but with the empty pieces in the middle and at the end, so
+// a skipped window still has to leave the chunks contiguous.
+func TestChunkSkipsWindowInterior(t *testing.T) {
+	t.Parallel()
+
+	tok := emptyPieceTokenizer{empty: 2, text: "a"}
+	c, err := New(tok, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Chunk("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, "a", got)
+	if len(got) != 1 {
+		t.Fatalf("chunks=%d, want the one window that covers the rune: %+v", len(got), got)
+	}
+	if got[0].Text != "a" || got[0].Start != 0 || got[0].End != 1 {
+		t.Fatalf("chunk=%+v want text %q [0,1)", got[0], "a")
+	}
+}

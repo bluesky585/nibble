@@ -54,12 +54,24 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 		if end > len(parts) {
 			end = len(parts)
 		}
-		piece := strings.Join(parts[i:end], "")
-		ch, err := chunk.New(piece, starts[i], starts[end], end-i)
-		if err != nil {
-			return nil, err
+		// A piece can be empty. That is a token that ended inside a
+		// character: the tokenizer reports it as an empty piece so the
+		// character is carried whole by the piece that completes it. When a
+		// single character is wider than the whole budget, every piece of a
+		// window can be empty, so the window covers no runes at all. That
+		// window is not a chunk: it is empty text carrying a token count,
+		// with an empty range, which nothing can retrieve on. Skipping it
+		// keeps the chunks contiguous, because the next window starts where
+		// this one did, and the character it was waiting for is emitted by
+		// that next window.
+		if starts[end] > starts[i] {
+			piece := strings.Join(parts[i:end], "")
+			ch, err := chunk.New(piece, starts[i], starts[end], end-i)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ch)
 		}
-		out = append(out, ch)
 		if end == len(parts) {
 			break
 		}
