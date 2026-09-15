@@ -9,9 +9,9 @@ The name means a small bite: chunks should be small enough to retrieve on their 
 Requires Go 1.26+.
 
 ```bash
-go get github.com/bluesky585/nibble@v0.3.0
-go install github.com/bluesky585/nibble/cmd/nibble@v0.3.0
-go install github.com/bluesky585/nibble/cmd/nibble-api@v0.3.0
+go get github.com/bluesky585/nibble@v0.4.0
+go install github.com/bluesky585/nibble/cmd/nibble@v0.4.0
+go install github.com/bluesky585/nibble/cmd/nibble-api@v0.4.0
 ```
 
 ## Principles
@@ -24,7 +24,7 @@ go install github.com/bluesky585/nibble/cmd/nibble-api@v0.3.0
 - **One dependency, isolated.** The chunkers are standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package, and it is quarantined in `pkg/tokenizer/tiktoken`: every chunker, and `pkg/tokenizer` itself, still builds with no dependency. The programs import it, since a flag has to reach the tokenizer it names. The TypeScript client in `ts/` is a separate toolchain with its own dev dependencies (`typescript`, `@types/node`); it is a separate language for a separate consumer, and nothing in Go imports it.
 - **English only.** Code, comments, commit messages, and docs in this repo are written in English.
 
-## v0.1 status
+## Status
 
 This is a first cut, not a production RAG platform. Chunking is the
 finished part; retrieval is enough to try, not enough to deploy.
