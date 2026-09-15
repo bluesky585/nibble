@@ -2,6 +2,7 @@ package tiktoken_test
 
 import (
 	"testing"
+	"unicode/utf8"
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
 	"github.com/bluesky585/nibble/pkg/tokenchunker"
@@ -39,11 +40,23 @@ func TestTokenChunkerWithRealVocabulary(t *testing.T) {
 				t.Fatalf("Chunk(%q, size=%d): %v", text, size, err)
 			}
 			assertchunk.Split(t, text, chunks)
-			// No window may exceed the budget by more than the runes of the
-			// token that straddles a character boundary.
 			for i, ch := range chunks {
-				if ch.TokenCount > size {
-					t.Fatalf("chunk %d has %d tokens, budget %d", i, ch.TokenCount, size)
+				// A character wider than the budget cannot be cut, so a
+				// window holding one may exceed the budget. 𠀋 is three
+				// tokens under cl100k_base, so at size 1 or 2 it does.
+				// Beyond that, no window may exceed the budget.
+				if ch.TokenCount > size && utf8.RuneCountInString(ch.Text) > size {
+					t.Fatalf("chunk %d has %d tokens and %d runes, budget %d",
+						i, ch.TokenCount, utf8.RuneCountInString(ch.Text), size)
+				}
+				// A window that is all empty pieces spans no runes. It used
+				// to be emitted as an empty chunk with a non-empty token
+				// count; it must be skipped instead. Every character wider
+				// than the budget is what triggers it, so these sizes are
+				// the ones that cover it.
+				if ch.Text == "" || ch.Start >= ch.End {
+					t.Fatalf("chunk %d is empty at size %d: %q [%d,%d) %d tokens",
+						i, size, ch.Text, ch.Start, ch.End, ch.TokenCount)
 				}
 			}
 		}
