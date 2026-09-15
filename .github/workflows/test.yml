@@ -17,3 +17,29 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: go test
         run: go test ./...
+
+  # The TypeScript client in ts/ is a separate toolchain for a separate
+  # consumer. It is a thin client, so there is little of it, but it still has
+  # to type check and pass its tests.
+  typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      - uses: actions/checkout@v4
+      # The version the client documents as its floor. Node runs .ts by type
+      # stripping from 23.6.0, so the tests need no build step.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "23.6.0"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+      - name: npm ci
+        run: npm ci
+      # Node deletes types without reading them, so this is the only step that
+      # checks them.
+      - name: typecheck
+        run: npm run typecheck
+      - name: node test
+        run: npm test

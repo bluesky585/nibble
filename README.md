@@ -21,7 +21,7 @@ go install github.com/bluesky585/nibble/cmd/nibble-api@v0.3.0
 - **Deterministic.** The same input and config always produce the same chunks.
 - **Separate measures.** Characters, bytes, and tokens are different rulers. Do not mix them.
 - **Small core.** Chunking is the product. Embeddings and stores are swap-in interfaces, not a catalog of vendors.
-- **One dependency, isolated.** The chunkers are standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package, and it is quarantined in `pkg/tokenizer/tiktoken`: every chunker, and `pkg/tokenizer` itself, still builds with no dependency. The programs import it, since a flag has to reach the tokenizer it names.
+- **One dependency, isolated.** The chunkers are standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package, and it is quarantined in `pkg/tokenizer/tiktoken`: every chunker, and `pkg/tokenizer` itself, still builds with no dependency. The programs import it, since a flag has to reach the tokenizer it names. The TypeScript client in `ts/` is a separate toolchain with its own dev dependencies (`typescript`, `@types/node`); it is a separate language for a separate consumer, and nothing in Go imports it.
 - **English only.** Code, comments, commit messages, and docs in this repo are written in English.
 
 ## v0.1 status
@@ -138,6 +138,23 @@ Omitted fields use the same defaults as the CLI. `POST /v1/chunk` returns `{"chu
 
 `POST /v1/search` body: `{"query":"cats","k":1,"embedder":"hashing"}`. `k` defaults to 5. Index and search must hit the same process.
 
+### Client
+
+A thin TypeScript client for this API lives in [`ts/`](ts/). It calls a running
+`nibble-api` and does not reimplement any chunking, so it cannot drift from the
+server. Node 23.6.0+ runs it directly, with no build step and no npm publish.
+
+```ts
+import { NibbleClient } from "./ts/client.ts";
+
+const client = new NibbleClient("http://127.0.0.1:8080");
+const chunks = await client.chunk({ text, chunker: "recursive", size: 512 });
+```
+
+Note that a chunk's `start`/`end` are rune offsets, not string indexes, so
+`text.slice(start, end)` is wrong for text holding an astral character. See
+[`ts/README.md`](ts/README.md).
+
 ## Development
 
 Requires Go 1.26+.
@@ -147,6 +164,15 @@ go test ./...
 go build -o nibble ./cmd/nibble
 go build -o nibble-api ./cmd/nibble-api
 ```
+
+The `ts/` client is a second toolchain and needs Node 23.6.0+:
+
+```bash
+cd ts && npm ci && npm run typecheck && npm test
+```
+
+CI runs both: `gofmt` and `go test ./...` for Go, and the type check and tests
+for the client.
 
 ## License
 

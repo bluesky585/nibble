@@ -1,0 +1,18 @@
+{
+  "name": "nibble-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A thin TypeScript client for the nibble HTTP API. Calls a running nibble-api; it does not reimplement the chunkers.",
+  "type": "module",
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test '**/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^5.8"
+  }
+}

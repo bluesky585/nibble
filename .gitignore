@@ -15,6 +15,10 @@ dist/
 coverage.out
 coverage.html
 
+# TypeScript client (ts/). It has no build output, so only the installed
+# dependencies are ignored; package.json and package-lock.json are committed.
+node_modules/
+
 # Go workspace files (this repo uses go.mod only)
 go.work
 go.work.sum
