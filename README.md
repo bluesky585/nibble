@@ -21,6 +21,7 @@ go install github.com/bluesky585/nibble/cmd/nibble-api@v0.2.0
 - **Deterministic.** The same input and config always produce the same chunks.
 - **Separate measures.** Characters, bytes, and tokens are different rulers. Do not mix them.
 - **Small core.** Chunking is the product. Embeddings and stores are swap-in interfaces, not a catalog of vendors.
+- **One dependency, isolated.** The library is standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package; it lives in `pkg/tokenizer/tiktoken` and nothing else imports it, so `pkg/tokenizer` and every chunker still build with no dependency.
 - **English only.** Code, comments, commit messages, and docs in this repo are written in English.
 
 ## v0.1 status
@@ -28,8 +29,8 @@ go install github.com/bluesky585/nibble/cmd/nibble-api@v0.2.0
 This is a first cut, not a production RAG platform. Chunking is the
 finished part; retrieval is enough to try, not enough to deploy.
 
-- Default tokenizer counts runes, not tiktoken, so `-size` is not a
-  model's token budget out of the box.
+- The default tokenizer counts runes, so `-size` is not a model's token
+  budget unless `-tokenizer tiktoken` is set.
 - `-embedder hashing` is bag-of-words similarity, not a neural model.
   `-embedder openai` is a real model and needs network and a key.
 - The only store is a JSONL file scanned linearly, so search is brute
@@ -51,7 +52,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `-chunker` | `recursive` | `recursive`, `sentence`, `token`, `fast`, `table`, `code`, `markdown`, or `semantic` |
-| `-tokenizer` | `character` | `character` or `word` (ignored by `fast`) |
+| `-tokenizer` | `character` | `character`, `word`, or `tiktoken` (ignored by `fast`) |
 | `-size` | `512` | max tokens per chunk; **max bytes** for `fast` |
 | `-overlap` | `0` | token overlap; token chunker only |
 | `-index` | | optional JSONL file of chunk embeddings |
@@ -66,6 +67,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-k` | `5` | number of hits for `-query` |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
+
+`tiktoken` counts with a real BPE vocabulary, so `-size` is a model's token budget: `-tokenizer tiktoken -size 512` means 512 cl100k_base tokens. The encoding table is not embedded. The first use downloads it once and caches it on disk (`TIKTOKEN_CACHE_DIR` overrides the location), so a run that never selects this tokenizer never touches the network. Pieces are cut on character boundaries rather than raw token boundaries, because a BPE token can end inside a character and offsets are rune ranges; a token ending mid-character yields an empty piece, so `Count` still equals `len(Split)` and joining the pieces still restores the input.
 
 `table` splits GitHub-flavored Markdown tables by row. Later row-groups copy the header into `context` so retrieval keeps column names; `text` stays a slice of the original, so reconstruct still works.
 

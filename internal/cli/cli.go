@@ -31,7 +31,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	chunkerName := fs.String("chunker", "recursive", "chunker: recursive, sentence, token, fast, table, code, markdown, or semantic")
-	tokName := fs.String("tokenizer", "character", "tokenizer: character or word (ignored by fast)")
+	tokName := fs.String("tokenizer", "character", "tokenizer: character, word, or tiktoken (ignored by fast)")
 	size := fs.Int("size", 512, "max tokens per chunk (max bytes for fast)")
 	overlap := fs.Int("overlap", 0, "token overlap (token chunker only)")
 	indexPath := fs.String("index", "", "optional JSONL path to store chunk embeddings")
@@ -89,7 +89,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	var tok tokenizer.Tokenizer
 	if *contextN != 0 {
-		tok, err = tokenizerFromName(*tokName)
+		tok, err = buildchunk.NewTokenizer(*tokName)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
@@ -234,17 +234,6 @@ func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJo
 		return nil, err
 	}
 	return []inputJob{{path: "", text: text}}, nil
-}
-
-func tokenizerFromName(name string) (tokenizer.Tokenizer, error) {
-	switch name {
-	case "", "character":
-		return tokenizer.Character{}, nil
-	case "word":
-		return tokenizer.Word{}, nil
-	default:
-		return nil, fmt.Errorf("unknown tokenizer %q", name)
-	}
 }
 
 func readInput(files []string, stdin io.Reader) (string, error) {
