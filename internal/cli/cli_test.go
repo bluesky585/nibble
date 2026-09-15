@@ -551,3 +551,53 @@ func TestRunEmbedDirUsesOneBatch(t *testing.T) {
 		}
 	}
 }
+
+// The tiktoken tokenizer counts real BPE tokens, so -size is a model budget.
+// It needs the encoding table, which is downloaded on a cold cache, so the
+// test skips rather than fails when it cannot be fetched.
+func TestRunTiktokenTokenizer(t *testing.T) {
+	original := "The quick brown fox jumps over the lazy dog."
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-chunker", "token", "-tokenizer", "tiktoken", "-size", "1000"},
+		strings.NewReader(original), &stdout, &stderr,
+	)
+	if strings.Contains(stderr.String(), "unavailable") || strings.Contains(stderr.String(), "could not") {
+		t.Skipf("tiktoken encoding unavailable: %s", stderr.String())
+	}
+	if code != 0 {
+		t.Skipf("tiktoken not usable here (exit %d): %s", code, stderr.String())
+	}
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+	if len(chunks) != 1 {
+		t.Fatalf("chunks=%d want 1 for a 1000-token budget", len(chunks))
+	}
+	// cl100k_base counts this sentence as 10 tokens, not 44 runes.
+	if chunks[0].TokenCount != 10 {
+		t.Fatalf("token_count=%d want 10 (a rune count would be %d)",
+			chunks[0].TokenCount, len([]rune(original)))
+	}
+}
+
+// -context builds its own tokenizer, so every name must resolve there too.
+// The two tokenizer factories once disagreed and "tiktoken" was unknown.
+func TestRunContextAcceptsEveryTokenizer(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"character", "word"} {
+		var stdout, stderr bytes.Buffer
+		code := Run(
+			[]string{"-chunker", "token", "-tokenizer", name, "-size", "6", "-context", "2"},
+			strings.NewReader("hello world"), &stdout, &stderr,
+		)
+		if code != 0 {
+			t.Fatalf("%s: exit %d stderr=%s", name, code, stderr.String())
+		}
+	}
+}

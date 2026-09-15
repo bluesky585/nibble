@@ -15,6 +15,7 @@ import (
 	"github.com/bluesky585/nibble/pkg/tablechunker"
 	"github.com/bluesky585/nibble/pkg/tokenchunker"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
+	"github.com/bluesky585/nibble/pkg/tokenizer/tiktoken"
 )
 
 // Chunker splits text into chunks.
@@ -36,7 +37,7 @@ func New(chunkerName, tokName string, size, overlap int, emb embed.Embedder) (Ch
 		return fastchunker.New(size, nil)
 	}
 
-	tok, err := newTokenizer(tokName)
+	tok, err := NewTokenizer(tokName)
 	if err != nil {
 		return nil, err
 	}
@@ -82,12 +83,17 @@ func New(chunkerName, tokName string, size, overlap int, emb embed.Embedder) (Ch
 	}
 }
 
-func newTokenizer(name string) (tokenizer.Tokenizer, error) {
+// NewTokenizer builds a tokenizer by name. The CLI uses it directly for
+// -context, so this is the single tokenizer factory: two of them drifted
+// apart once already, and a name known to one was unknown to the other.
+func NewTokenizer(name string) (tokenizer.Tokenizer, error) {
 	switch name {
-	case "character":
+	case "", "character":
 		return tokenizer.Character{}, nil
 	case "word":
 		return tokenizer.Word{}, nil
+	case "tiktoken":
+		return tiktoken.New("")
 	default:
 		return nil, fmt.Errorf("unknown tokenizer %q", name)
 	}
