@@ -14,6 +14,117 @@ go install github.com/bluesky585/nibble/cmd/nibble@v0.4.0
 go install github.com/bluesky585/nibble/cmd/nibble-api@v0.4.0
 ```
 
+## Quick start
+
+### As a library
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/bluesky585/nibble/pkg/recursive"
+	"github.com/bluesky585/nibble/pkg/tokenizer"
+)
+
+func main() {
+	// Character counts one token per rune, so size is a rune budget. Use
+	// tokenizer/tiktoken for a model's real token budget.
+	c, err := recursive.New(tokenizer.Character{}, 30, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	text := "Cats sleep twelve to sixteen hours a day. Dogs sleep ten to fourteen."
+	chunks, err := c.Chunk(text)
+	if err != nil {
+		panic(err)
+	}
+
+	var joined string
+	for _, ch := range chunks {
+		fmt.Printf("[%d,%d) %d tokens %q\n", ch.Start, ch.End, ch.TokenCount, ch.Text)
+		joined += ch.Text
+	}
+	fmt.Println("reconstructs:", joined == text)
+}
+```
+
+```text
+[0,29) 29 tokens "Cats sleep twelve to sixteen "
+[29,41) 12 tokens "hours a day."
+[41,69) 28 tokens " Dogs sleep ten to fourteen."
+reconstructs: true
+```
+
+Three things to notice in that output, because they are the whole contract:
+
+- `Start` and `End` are a half-open range of **rune** offsets, not byte
+  offsets and not string indexes in other languages.
+- Joining the chunks in order returns the input exactly. That is the
+  first principle below, and it is checked by the tests on every commit.
+- No cut landed mid-word. `recursive` walks down its rule stack (blank
+  line, then line, then sentence, then word) and only falls to the next
+  rule when the larger one does not fit, so the first cut here lands on a
+  space. A cut inside a word is still possible — it is what happens when
+  a single word is wider than the budget on its own — but it is the last
+  resort, not the default.
+
+Each chunker is its own package with the same one-method interface, so any
+of them can stand in for `recursive` above:
+
+| Package | Constructor | Cuts on |
+| --- | --- | --- |
+| `recursive` | `New(tok, size, rules)` | the largest of blank line / line / sentence / word that fits |
+| `sentencechunker` | `New(tok, size, delims)` | sentence ends only |
+| `tokenchunker` | `New(tok, size, overlap)` | fixed windows, optional repeat |
+| `fastchunker` | `New(size, delims)` | a delimiter near a **byte** budget; no tokenizer |
+| `tablechunker` | `New(tok, size)` | GFM table rows, with the header copied into `Context` |
+| `codechunker` | `New(tok, size, opts...)` | top-level declarations; `codechunker.Language("go")` |
+| `markdownchunker` | `New(tok, size)` | routes each region to the chunker that fits it |
+| `semantic` | `New(tok, emb, size, minSim)` | cosine similarity drops between sentences |
+
+`nil` rules and delims mean the package defaults. `tokenizer.Character{}`,
+`tokenizer.Word{}`, and `tokenizer/tiktoken.New("cl100k_base")` are the three
+tokenizers.
+
+### From the command line
+
+```bash
+printf 'Cats sleep. Dogs bark. Birds sing.' | go run ./cmd/nibble -chunker sentence -size 12
+```
+
+No file needed: the CLI reads a file argument, a directory (`-dir`), or
+stdin. `go run ./cmd/nibble` is for working inside a checkout; once
+installed, the same command is just `nibble`. It prints:
+
+```json
+[
+  {
+    "text": "Cats sleep.",
+    "start": 0,
+    "end": 11,
+    "token_count": 11
+  },
+  {
+    "text": " Dogs bark.",
+    "start": 11,
+    "end": 22,
+    "token_count": 11
+  },
+  {
+    "text": " Birds sing.",
+    "start": 22,
+    "end": 34,
+    "token_count": 12
+  }
+]
+```
+
+Add `-html out.html` to any run to get the same split colored over the
+source text, which is usually faster to check by eye than by reading JSON.
+
 ## Principles
 
 - **Reconstructable.** With no overlap, concatenating chunks in order must equal the original text.
