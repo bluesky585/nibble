@@ -254,3 +254,35 @@ func TestUnknownField(t *testing.T) {
 		t.Fatalf("status %d", rec.Code)
 	}
 }
+
+// lang reaches the code chunker over HTTP the same way -lang does on the CLI.
+// A bad language is reported rather than ignored, so a client cannot believe
+// it selected Python while the server detected something else.
+func TestChunkLang(t *testing.T) {
+	t.Parallel()
+
+	original := "def a():\n    pass\n\n\ndef b():\n    pass\n"
+	raw, _ := json.Marshal(chunkRequest{Text: original, Chunker: "code", Lang: "python", Size: 24})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chunk", bytes.NewReader(raw))
+	Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp chunkResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, resp.Chunks)
+	if len(resp.Chunks) != 2 {
+		t.Fatalf("len=%d want 2: %+v", len(resp.Chunks), resp.Chunks)
+	}
+
+	raw, _ = json.Marshal(chunkRequest{Text: original, Chunker: "code", Lang: "rust", Size: 24})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/v1/chunk", bytes.NewReader(raw))
+	Handler().ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("an unknown lang must not be accepted: %s", rec.Body.String())
+	}
+}

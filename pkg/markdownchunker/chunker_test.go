@@ -216,3 +216,55 @@ func TestChunkUnclosedFenceIsProse(t *testing.T) {
 	}
 	assertchunk.Split(t, original, got)
 }
+
+// A fence's info string picks the rules the block is cut by, and that choice
+// beats detection.
+//
+// The body is Python, so the false boundary under test is not a subtle one:
+// under ```go it does not parse as Go at all, and the block falls to token
+// windows, which cut wherever the budget falls; under ```python it is cut on
+// its two top-level defs. The assertion is on which chunk holds the second
+// def, because that is what differs: detection would refuse to read a ```go
+// block as Python, and reading a ```python block as Go is the bug this
+// replaces, where the fence's own language was parsed and then thrown away.
+func TestChunkFenceLanguageDecidesRules(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := "def a():\n    pass\n\n\ndef b():\n    pass\n"
+
+	// A ```python block is cut on the def: the second chunk opens with it.
+	// "py" is an alias, so it has to reach the same chunker.
+	for _, lang := range []string{"python", "py"} {
+		original := "```" + lang + "\n" + body + "```\n"
+		got, err := c.Chunk(original)
+		if err != nil {
+			t.Fatalf("%s: %v", lang, err)
+		}
+		assertchunk.Split(t, original, got)
+		if len(got) != 2 {
+			t.Fatalf("%s: len=%d want 2: %+v", lang, len(got), got)
+		}
+		if !strings.HasPrefix(got[1].Text, "def b():") {
+			t.Fatalf("%s: chunk 1 must open at the second def, got %q", lang, got[1].Text)
+		}
+	}
+
+	// A ```go block is not: the same body falls to token windows, which do
+	// not know where a def begins, so the second chunk opens mid-statement.
+	original := "```go\n" + body + "```\n"
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	if len(got) < 2 {
+		t.Fatalf("expected the block to split, got %+v", got)
+	}
+	if strings.HasPrefix(got[1].Text, "def b():") {
+		t.Fatalf("chunk 1 opened at a Python def, so the fence's go was ignored: %q", got[1].Text)
+	}
+}

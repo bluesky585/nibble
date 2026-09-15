@@ -28,8 +28,9 @@ type Chunker interface {
 // byte budget, while chunk offsets remain runes.
 // "markdown" routes regions of a document to the code, table, and
 // recursive chunkers; the tokenizer applies to its prose and code parts.
+// lang names the language for the "code" chunker; empty detects it.
 // emb is used by the semantic chunker; nil means embed.Hashing.
-func New(chunkerName, tokName string, size, overlap int, emb embed.Embedder) (Chunker, error) {
+func New(chunkerName, tokName, lang string, size, overlap int, emb embed.Embedder) (Chunker, error) {
 	if chunkerName == "fast" {
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
@@ -64,10 +65,16 @@ func New(chunkerName, tokName string, size, overlap int, emb embed.Embedder) (Ch
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
 		}
-		return codechunker.New(tok, size)
+		if lang == "" {
+			return codechunker.New(tok, size)
+		}
+		return codechunker.New(tok, size, codechunker.Language(lang))
 	case "markdown":
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		if lang != "" {
+			return nil, fmt.Errorf("-lang is only used with -chunker code; markdown reads it from each fence")
 		}
 		return markdownchunker.New(tok, size)
 	case "semantic":
