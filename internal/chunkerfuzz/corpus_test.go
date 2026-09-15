@@ -41,6 +41,13 @@ var alphabets = []string{
 	"| not a table\n| --- |\n",
 	"package main\n\n// Doc.\nfunc main() {}\n\ntype T struct{ A int }\n",
 	"not go source at all {{{ )))\n",
+	// Python exercises the line scanner rather than a parser: a decorator and
+	// its comment, a class whose methods are indented and so are not cuts, a
+	// docstring holding a def that is not one, a def nested in an if, and a
+	// bracket and a backslash continuation. prose and a fenced python block
+	// make the markdown chunker pick Python rules for the fence.
+	"import os\n\n\n@cache\n# Doc.\ndef f(a, b=[\n    1,\n]):\n    \"\"\"A docstring with a def fake(): in it.\"\"\"\n    return a + \\\n        b\n\n\nclass C:\n    def m(self):\n        if True:\n            def nested():\n                pass\n        return 1\n",
+	"prose\n\n```python\ndef f():\n    pass\n```\n\nprose\n",
 	"tabs\tand  doubled  spaces\n",
 	strings.Repeat("token ", 40) + "\n",
 	strings.Repeat("你", 120) + "\n",

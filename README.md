@@ -37,7 +37,6 @@ finished part; retrieval is enough to try, not enough to deploy.
   force over whatever the file holds.
 - `POST /v1/index` keeps vectors in process memory; they are gone when
   the server exits.
-- `code` parses Go only.
 - A query must use the same embedder that built the index; a mismatch is
   reported rather than scored.
 
@@ -61,6 +60,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-context-mode` | `prefix` | `prefix` or `suffix` |
 | `-dir` | | recursive directory (not with a file argument) |
 | `-ext` | `.txt,.md` | extensions for `-dir` |
+| `-lang` | | language for `-chunker code`: `go` or `python` (empty detects it) |
 | `-html` | | write an HTML page of the source colored by chunk |
 | `-embed` | `false` | add an `embedding` to each chunk in the JSON output |
 | `-query` | | search an `-index` file and print hits instead of chunking |
@@ -72,9 +72,19 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 
 `table` splits GitHub-flavored Markdown tables by row. Later row-groups copy the header into `context` so retrieval keeps column names; `text` stays a slice of the original, so reconstruct still works.
 
-`code` splits Go source on top-level declarations (package, types, funcs), keeping doc comments with the decl. If the file does not parse, it falls back to token windows.
+`code` splits source on top-level declarations, keeping a doc comment or
+decorator with the declaration it documents. `-lang go` or `-lang python`
+names the language; with no `-lang` it detects, and source it cannot cut
+falls back to token windows. Go is read with the standard library parser,
+so a declaration's span is exact. Python has no parser in the standard
+library and nibble will not take a dependency for one, so it is read by a
+line scanner that tracks bracket depth, comments, and string literals, and
+cuts where a statement at column 0 begins. The scanner is deliberately
+conservative: anything it cannot be sure about stays in the piece it is in,
+because a missing boundary only makes the token fallback do more work,
+while a wrong one would split a statement in half.
 
-`markdown` routes each region of a document to the chunker that fits it: fenced code blocks to `code`, GFM tables to `table`, everything else to `recursive`. Regions are disjoint and cover the whole input, so reconstruct still holds. A code block is split with its fence lines removed and reattached to the boundary chunks, since the fence syntax is not part of the language inside; this can push a boundary chunk slightly over `-size`.
+`markdown` routes each region of a document to the chunker that fits it: fenced code blocks to `code`, GFM tables to `table`, everything else to `recursive`. Regions are disjoint and cover the whole input, so reconstruct still holds. A fenced block's info string names its language, so each block is cut with the rules for what it holds (`python` blocks by Python rules, `go` blocks by Go rules) rather than being parsed as the wrong one; `-lang` is rejected here, since the document supplies it. A code block is split with its fence lines removed and reattached to the boundary chunks, since the fence syntax is not part of the language inside; this can push a boundary chunk slightly over `-size`.
 
 `semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full.
 
@@ -119,6 +129,7 @@ go run ./cmd/nibble-api -addr 127.0.0.1:8080
   "tokenizer": "character",
   "size": 512,
   "overlap": 0,
+  "lang": "",
   "embedder": "hashing"
 }
 ```

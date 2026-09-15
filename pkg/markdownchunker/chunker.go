@@ -78,6 +78,10 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	if text == "" {
 		return nil, nil
 	}
+	// Fences in one document can name different languages, so the code
+	// chunker is chosen per region and remembered by name. The empty name is
+	// the default chunker built in New.
+	codes := map[string]codechunker.Chunker{"": c.code}
 	var out []chunk.Chunk
 	for _, r := range regions([]rune(text), text) {
 		var (
@@ -86,7 +90,15 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 		)
 		switch r.kind {
 		case kindCode:
-			part, err = c.chunkCode(r)
+			cc, ok := codes[r.code.Language]
+			if !ok {
+				cc, err = c.codeFor(r.code.Language)
+				if err != nil {
+					return nil, err
+				}
+				codes[r.code.Language] = cc
+			}
+			part, err = c.chunkCode(r, cc)
 		case kindTable:
 			part, err = c.table.Chunk(r.text)
 		default:
@@ -100,16 +112,27 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	return out, nil
 }
 
+// codeFor returns the chunker that should cut a fence naming lang. A fence
+// may name any language, so one this package cannot cut falls back to the
+// default chunker, which detects the language or uses token windows.
+func (c Chunker) codeFor(lang string) (codechunker.Chunker, error) {
+	cc, err := codechunker.New(c.tok, c.size, codechunker.Language(lang))
+	if err != nil {
+		return c.code, nil
+	}
+	return cc, nil
+}
+
 // chunkCode feeds the code between the fence lines to the code chunker,
 // then folds the fence lines back onto the first and last chunk. Offsets
 // are relative to the region; the caller shifts them into the document.
-func (c Chunker) chunkCode(r region) ([]chunk.Chunk, error) {
+func (c Chunker) chunkCode(r region, cc codechunker.Chunker) ([]chunk.Chunk, error) {
 	runes := []rune(r.text)
 	bodyStart := r.code.InnerStart - r.start
 	bodyEnd := r.code.InnerEnd - r.start
 	prefix, body, suffix := runes[:bodyStart], string(runes[bodyStart:bodyEnd]), runes[bodyEnd:]
 
-	bodyChunks, err := c.code.Chunk(body)
+	bodyChunks, err := cc.Chunk(body)
 	if err != nil {
 		return nil, err
 	}

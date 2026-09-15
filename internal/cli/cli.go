@@ -32,6 +32,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	chunkerName := fs.String("chunker", "recursive", "chunker: recursive, sentence, token, fast, table, code, markdown, or semantic")
 	tokName := fs.String("tokenizer", "character", "tokenizer: character, word, or tiktoken (ignored by fast)")
+	lang := fs.String("lang", "", "language for -chunker code: go or python (empty detects it)")
 	size := fs.Int("size", 512, "max tokens per chunk (max bytes for fast)")
 	overlap := fs.Int("overlap", 0, "token overlap (token chunker only)")
 	indexPath := fs.String("index", "", "optional JSONL path to store chunk embeddings")
@@ -81,7 +82,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	c, err := buildchunk.New(*chunkerName, *tokName, *size, *overlap, emb)
+	c, err := buildchunk.New(*chunkerName, *tokName, *lang, *size, *overlap, emb)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2

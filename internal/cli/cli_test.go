@@ -122,6 +122,36 @@ func TestRunCode(t *testing.T) {
 	assertchunk.Split(t, original, chunks)
 }
 
+// -lang picks the rules for -chunker code, and a language nibble cannot cut
+// is an error rather than a silent fallback to detection.
+func TestRunCodeLang(t *testing.T) {
+	t.Parallel()
+
+	original := "def a():\n    pass\n\n\ndef b():\n    pass\n"
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-chunker", "code", "-lang", "python", "-size", "24"}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, chunks)
+	if len(chunks) != 2 {
+		t.Fatalf("len=%d want 2: %+v", len(chunks), chunks)
+	}
+
+	stderr.Reset()
+	code = Run([]string{"-chunker", "code", "-lang", "rust"}, strings.NewReader(original), &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("an unknown language must fail, stdout=%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), `unknown language "rust"`) {
+		t.Fatalf("stderr=%s", stderr.String())
+	}
+}
+
 func TestRunTable(t *testing.T) {
 	t.Parallel()
 
