@@ -1,5 +1,12 @@
 // Package overlap copies neighboring tokens into Chunk.Context.
 // Text and offsets are unchanged, so reconstruct still holds.
+//
+// The name is about what gets copied, not about the -overlap flag, which
+// this package does not implement. -overlap repeats text by widening each
+// token window, so the repeat lives in Chunk.Text (see pkg/tokenchunker).
+// Here nothing is repeated: Context receives a preview of the neighbor
+// while Text stays a slice of the source. Prefix implements
+// -context-mode prefix and Suffix implements -context-mode suffix.
 package overlap
 
 import (
