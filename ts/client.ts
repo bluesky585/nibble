@@ -78,6 +78,14 @@ export type Tokenizer = "character" | "word" | "tiktoken";
 export type Embedder = "hashing" | "openai";
 
 /**
+ * How hits are ranked. `dense` is cosine over stored vectors and is the
+ * only mode that uses the embedder; `bm25` ranks by term overlap over
+ * the indexed texts and needs no embedder at all; `hybrid` blends both.
+ * Scores across modes are not comparable — each is its own measure.
+ */
+export type Scoring = "dense" | "bm25" | "hybrid";
+
+/**
  * The language `chunker: "code"` should read. Omit it, or pass `""`, to let
  * the server detect it. `markdown` rejects this: each fence names its own
  * language.
@@ -99,7 +107,11 @@ export interface ChunkRequest {
   lang?: Language;
   /** Max tokens per chunk, or max bytes when `chunker` is `fast`. */
   size?: number;
-  /** Token overlap. The token chunker is the only one that accepts it. */
+  /**
+   * Token overlap. `token` widens its windows; `recursive` repeats the
+   * previous chunk's tail in the next chunk's text. Other chunkers
+   * reject it.
+   */
   overlap?: number;
   embedder?: Embedder;
 }
@@ -110,6 +122,13 @@ export interface SearchRequest {
   /** Number of hits to return. The server defaults to 5. */
   k?: number;
   embedder?: Embedder;
+  /** How hits are ranked. The server defaults to `dense`. */
+  scoring?: Scoring;
+  /**
+   * The dense share of a `hybrid` blend, from 0 (all bm25) to 1 (all
+   * dense). The server defaults to 0.5. Ignored by the other modes.
+   */
+  hybrid_weight?: number;
 }
 
 /** Options for the client itself, not for a request. */

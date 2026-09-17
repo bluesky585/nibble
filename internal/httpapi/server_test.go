@@ -309,3 +309,91 @@ func TestChunkLang(t *testing.T) {
 		t.Fatalf("an unknown lang must not be accepted: %s", rec.Body.String())
 	}
 }
+
+// The search scoring modes match the CLI's -scoring: dense (default),
+// bm25 (term overlap, no embedder), hybrid (a blend). Scores across the
+// modes are not comparable, so bm25 is checked on its ranking and its
+// positivity, not against the dense numbers.
+func TestSearchScoringModes(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	h := api.Handler()
+
+	idx := httptest.NewRecorder()
+	h.ServeHTTP(idx, httptest.NewRequest(
+		http.MethodPost,
+		"/v1/index",
+		// Size 24 keeps each sentence its own chunk, so the rare term lives
+		// in one record instead of being fragmented by token fallback or
+		// swallowed by a whole-document chunk.
+		strings.NewReader(`{"text":"cats sleep on mats. quarks feel the strong force. dogs bark loudly.","chunker":"sentence","size":24}`),
+	))
+	if idx.Code != http.StatusOK {
+		t.Fatalf("index status %d body=%s", idx.Code, idx.Body.String())
+	}
+
+	// bm25 without an embedder: the embedder field is ignored, and the
+	// rare term beats the common one.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPost,
+		"/v1/search",
+		strings.NewReader(`{"query":"quarks","k":1,"scoring":"bm25"}`),
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bm25 status %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Hits) != 1 || !strings.Contains(resp.Hits[0].Record.Chunk.Text, "quarks") {
+		t.Fatalf("bm25 got %+v", resp.Hits)
+	}
+	if resp.Hits[0].Score <= 0 {
+		t.Fatalf("bm25 score should be positive: %+v", resp.Hits[0])
+	}
+
+	// hybrid with the default weight finds the obvious sentence.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPost,
+		"/v1/search",
+		strings.NewReader(`{"query":"cats sleep","k":1,"scoring":"hybrid"}`),
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("hybrid status %d body=%s", rec.Code, rec.Body.String())
+	}
+	resp = searchResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Hits) != 1 || !strings.Contains(resp.Hits[0].Record.Chunk.Text, "cats") {
+		t.Fatalf("hybrid got %+v", resp.Hits)
+	}
+
+	// An unknown mode is a usage error, not a silent dense.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPost,
+		"/v1/search",
+		strings.NewReader(`{"query":"cats","scoring":"splade"}`),
+	))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "scoring") {
+		t.Fatalf("bad scoring: status %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// A hybrid weight outside [0, 1] is rejected the way the CLI rejects it.
+func TestSearchHybridWeightRange(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/search", strings.NewReader(
+		`{"query":"cats","scoring":"hybrid","hybrid_weight":2}`))
+	Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "weight") {
+		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+}

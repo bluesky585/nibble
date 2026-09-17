@@ -15,3 +15,10 @@ func (m *Memory) Upsert(records []Record) error {
 func (m *Memory) Search(query []float64, k int) ([]Hit, error) {
 	return searchRecords(m.records, query, k)
 }
+
+// Records returns the whole corpus, for the ranking modes that read
+// texts rather than search vectors. The slice is shared, like the
+// JSONL store's: the caller must not modify it.
+func (m *Memory) Records() []Record {
+	return m.records
+}

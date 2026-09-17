@@ -63,9 +63,11 @@ type indexResponse struct {
 }
 
 type searchRequest struct {
-	Query    string `json:"query"`
-	K        int    `json:"k"`
-	Embedder string `json:"embedder"`
+	Query        string  `json:"query"`
+	K            int     `json:"k"`
+	Embedder     string  `json:"embedder"`
+	Scoring      string  `json:"scoring"`
+	HybridWeight float64 `json:"hybrid_weight"`
 }
 
 type searchResponse struct {
@@ -115,22 +117,34 @@ func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
 	if req.K == 0 {
 		req.K = 5
 	}
+	if req.Scoring == "" {
+		req.Scoring = store.RankDense
+	}
 
-	emb, err := embed.Lookup(req.Embedder)
+	// The scoring mode decides what a query is: dense and hybrid embed
+	// it, bm25 reads it as terms and needs no embedder at all.
+	var queryVec []float64
+	if req.Scoring != store.RankBM25 {
+		emb, err := embed.Lookup(req.Embedder)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			return
+		}
+		vecs, err := emb.Embed([]string{req.Query})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+			return
+		}
+		queryVec = vecs[0]
+	}
+
+	records := a.mem.Records()
+	scores, err := store.RankScores(records, req.Query, queryVec, req.Scoring, req.HybridWeight)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
 	}
-	vecs, err := emb.Embed([]string{req.Query})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
-		return
-	}
-	hits, err := a.mem.Search(vecs[0], req.K)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
-		return
-	}
+	hits := store.Rank(records, scores, req.K)
 	if hits == nil {
 		hits = []store.Hit{}
 	}

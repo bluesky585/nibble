@@ -10,6 +10,7 @@ import type {
   FetchLike,
   Hit,
   Language,
+  Scoring,
   SearchRequest,
   Tokenizer,
 } from "./client.ts";
@@ -272,6 +273,7 @@ test("the option unions reject values the server does not accept", () => {
   ];
   const tokenizers: Tokenizer[] = ["character", "word", "tiktoken"];
   const embedders: Embedder[] = ["hashing", "openai"];
+  const scorings: Scoring[] = ["dense", "bm25", "hybrid"];
   const languages: Language[] = ["go", "golang", "python", "python3", "python2", "py", ""];
 
   // @ts-expect-error "magic" is not a chunker the server knows.
@@ -289,6 +291,10 @@ test("the option unions reject values the server does not accept", () => {
   assert.equal(req.text, "hi");
   assert.equal(search.query, "hi");
   assert.equal(languages.length, 7);
+  assert.equal(scorings.length, 3);
+  // @ts-expect-error "splade" is not a scoring mode the server knows.
+  const badScoring: Scoring = "splade";
+  assert.equal(badScoring, "splade");
   // Read so the unused-variable check does not flag the type assertions.
   assert.equal(badChunker, "magic");
   assert.equal(badTokenizer, "emoji");
