@@ -47,6 +47,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	embedInJSON := fs.Bool("embed", false, "add an embedding to each chunk in the JSON output (one batch call)")
 	query := fs.String("query", "", "search an -index file for this text and print hits instead of chunking")
 	topK := fs.Int("k", 5, "number of hits for -query")
+	scoringName := fs.String("scoring", "dense", "scoring for -query: dense, bm25, or hybrid")
+	hybridWeight := fs.Float64("hybrid-weight", 0.5, "dense share when -scoring hybrid (0 to 1)")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -65,7 +67,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "-query reads no input; drop -dir and the file argument")
 			return 2
 		}
-		return runQuery(*query, *indexPath, *topK, emb, stdout, stderr)
+		return runQuery(*query, *indexPath, *scoringName, *hybridWeight, *topK, emb, stdout, stderr)
 	}
 	// Catches `nibble -index x.jsonl -k 3` read as a search.
 	if *topK != 5 {

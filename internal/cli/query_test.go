@@ -242,3 +242,87 @@ type panicReader struct{}
 func (panicReader) Read([]byte) (int, error) {
 	panic("stdin was read")
 }
+
+// bm25 scoring needs no embedder at all: a query on an index built
+// without vectors still ranks by term overlap. Here the quantum
+// sentence must win with -scoring bm25 even though the hashing
+// embedder is the only one available.
+func TestRunQueryBM25(t *testing.T) {
+	t.Parallel()
+
+	// Size 64 keeps each sentence whole: BM25 scores terms, and a
+	// chunk that holds half a word holds no term at all.
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	buildIndex(t, path, "Cats sleep on mats. Quantum chromodynamics is hard.", 64)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-query", "chromodynamics", "-index", path, "-k", "1", "-scoring", "bm25"},
+		strings.NewReader(""), &stdout, &stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+	var hits []store.Hit
+	if err := json.Unmarshal(stdout.Bytes(), &hits); err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || !strings.Contains(hits[0].Record.Chunk.Text, "Quantum") {
+		t.Fatalf("want the quantum sentence, got %+v", hits)
+	}
+	if hits[0].Score <= 0 {
+		t.Fatalf("bm25 hit should score above zero: %+v", hits[0])
+	}
+}
+
+// Hybrid blends both paths. With the default weight it agrees with the
+// dense ranking on an obvious query, and an out-of-range weight is
+// rejected.
+func TestRunQueryHybrid(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	buildIndex(t, path, "Cats sleep on mats. Quantum chromodynamics is hard.", 5)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-query", "cats sleep", "-index", path, "-k", "1", "-scoring", "hybrid"},
+		strings.NewReader(""), &stdout, &stderr,
+	)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
+	}
+	var hits []store.Hit
+	if err := json.Unmarshal(stdout.Bytes(), &hits); err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || !strings.Contains(hits[0].Record.Chunk.Text, "Cats") {
+		t.Fatalf("want the cats sentence, got %+v", hits)
+	}
+
+	stderr.Reset()
+	code = Run(
+		[]string{"-query", "cats", "-index", path, "-scoring", "hybrid", "-hybrid-weight", "2"},
+		strings.NewReader(""), &stdout, &stderr,
+	)
+	if code != 2 || !strings.Contains(stderr.String(), "weight") {
+		t.Fatalf("weight 2 accepted: exit=%d stderr=%s", code, stderr.String())
+	}
+}
+
+// An unknown scoring name is a usage error, not a silent dense.
+func TestRunQueryBadScoring(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	buildIndex(t, path, "alpha beta.", 5)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"-query", "alpha", "-index", path, "-scoring", "splade"},
+		strings.NewReader(""), &stdout, &stderr,
+	)
+	if code != 2 || !strings.Contains(stderr.String(), "scoring") {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+}
