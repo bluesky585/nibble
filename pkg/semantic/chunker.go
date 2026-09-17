@@ -26,7 +26,12 @@ type Chunker struct {
 	// minRunes is passed to the sentence split; see
 	// sentencechunker.MinRunes for why it is opt-in rather than a default.
 	minRunes int
-	hard     tokenchunker.Chunker
+	// simWindow is how many sentences on each side of a boundary
+	// candidate form the two compared groups. 1 compares adjacent pairs,
+	// which is noisy when one sentence's wording jitters; larger values
+	// average over more sentences.
+	simWindow int
+	hard      tokenchunker.Chunker
 }
 
 // Option configures a Chunker beyond the required arguments.
@@ -54,13 +59,34 @@ func New(tok tokenizer.Tokenizer, emb embed.Embedder, size int, minSim float64, 
 	if err != nil {
 		return Chunker{}, err
 	}
-	c := Chunker{tok: tok, emb: emb, size: size, minSim: minSim, hard: hard}
+	c := Chunker{tok: tok, emb: emb, size: size, minSim: minSim, simWindow: 1, hard: hard}
 	for _, opt := range opts {
 		if err := opt(&c); err != nil {
 			return Chunker{}, err
 		}
 	}
 	return c, nil
+}
+
+// SimilarityWindow sets how many sentences on each side of a boundary
+// candidate are compared. The two group means — one over the window
+// before the cut point, one over the window after it — are embedded
+// vectors, and their cosine decides the cut.
+//
+// The default 1 compares adjacent sentence pairs, which is noisy: one
+// sentence whose wording jitters can drop a pair below the threshold and
+// split a topic that never changed. A window of 2 or 3 averages that
+// jitter away while a real topic change still drops the group-to-group
+// similarity. Larger windows blur short topics into their neighbors, so
+// keep it small. Must be >= 1.
+func SimilarityWindow(n int) Option {
+	return func(c *Chunker) error {
+		if n < 1 {
+			return fmt.Errorf("similarity window must be >= 1, got %d", n)
+		}
+		c.simWindow = n
+		return nil
+	}
 }
 
 // MinRunes merges sentence pieces shorter than n runes into the next
@@ -106,6 +132,50 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	// the packing decision and the emitted chunks read these counts.
 	counts := tokenizer.CountBatch(c.tok, texts)
 
+	// sim[i] is the group-to-group similarity at cut point i, the point
+	// before piece i. A window of 1 compares the adjacent pair, matching
+	// the pairwise test exactly; a larger window compares the mean
+	// vectors of the w sentences on each side. A point without a full
+	// window on both sides — near either end of the document — is not
+	// evaluated: a cut needs the window's worth of evidence on both
+	// sides, and a partial window would compare a diluted group against
+	// a whole one. The value 2 is above the [0, 1] range, so those
+	// points never become candidates.
+	sim := make([]float64, len(pieces))
+	w := c.simWindow
+	for i := 1; i < len(pieces); i++ {
+		lo, hi := i-w, i+w
+		if lo < 0 || hi > len(pieces) {
+			sim[i] = 2
+			continue
+		}
+		sim[i] = embed.Cosine(meanVec(vecs[lo:i]), meanVec(vecs[i:hi]))
+	}
+
+	// A real boundary dips below the threshold for a run of consecutive
+	// points, because the windows on both sides straddle the change and
+	// each mixes the two topics. One change is one cut, so the cut goes
+	// at the run's deepest point rather than at every point in it. That
+	// also keeps w=1 from sawing a gradually drifting topic into
+	// per-sentence pieces: consecutive dissimilar pairs become one cut
+	// at the pair least like each other.
+	boundary := make([]bool, len(pieces))
+	inRun := false
+	deepest := 0
+	for i := 1; i <= len(pieces); i++ {
+		if i < len(pieces) && sim[i] < c.minSim {
+			if !inRun || sim[i] < sim[deepest] {
+				deepest = i
+			}
+			inRun = true
+			continue
+		}
+		if inRun {
+			boundary[deepest] = true
+			inRun = false
+		}
+	}
+
 	var out []chunk.Chunk
 	// buf holds indexes into pieces, not the pieces themselves, so flush
 	// can sum the precomputed counts instead of counting text again.
@@ -136,7 +206,7 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	for i, p := range pieces {
 		n := counts[i]
 		if len(buf) > 0 {
-			if tokens+n > c.size || embed.Cosine(vecs[i-1], vecs[i]) < c.minSim {
+			if tokens+n > c.size || boundary[i] {
 				if err := flush(); err != nil {
 					return nil, err
 				}
@@ -178,4 +248,20 @@ func (c Chunker) hardSplit(p split.Piece) ([]chunk.Chunk, error) {
 		out[i] = ch
 	}
 	return out, nil
+}
+
+// meanVec returns the component-wise mean of vectors. All vectors have
+// the same length because one embedder produced them.
+func meanVec(vs [][]float64) []float64 {
+	m := make([]float64, len(vs[0]))
+	for _, v := range vs {
+		for i := range v {
+			m[i] += v[i]
+		}
+	}
+	n := float64(len(vs))
+	for i := range m {
+		m[i] /= n
+	}
+	return m
 }

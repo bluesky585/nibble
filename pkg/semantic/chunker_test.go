@@ -157,3 +157,80 @@ func TestNewMinRunes(t *testing.T) {
 		}
 	}
 }
+
+// windowTexts is a two-topic document for testing the similarity window.
+// Every sentence in a topic shares that topic's anchor word, so adjacent
+// sentences inside a topic stay above the threshold. There is exactly one
+// topic boundary, and it drops the similarity to zero.
+func windowTexts() string {
+	a := []string{
+		"cats sleep on soft beds.",
+		"cats sleep in warm sun.",
+		"cats sleep through rainy nights.",
+		"cats dream.",
+		"cats sleep all day long.",
+		"cats sleep near warm fires.",
+		"cats sleep after every meal.",
+		"cats sleep until noon arrives.",
+	}
+	b := []string{
+		"Quantum entanglement links distant particles.",
+		"Quantum superposition defies classical physics.",
+		"Quantum computing uses qubits and gates.",
+		"Quantum states collapse when measured.",
+	}
+	return strings.Join(a, "") + strings.Join(b, "")
+}
+
+// Adjacent-pair similarity inside a topic jitters: one pair of sentences
+// can land below the threshold even though no topic changed there. The
+// window averages over several sentences, which smooths that jitter while
+// the real boundary still cuts.
+//
+// Asserted on the boundary counts, not on the split layer: packing merges
+// pieces that fit the budget, so chunk count says nothing about where the
+// similarity test cut.
+func TestSimilarityWindowSmoothsJitter(t *testing.T) {
+	t.Parallel()
+
+	original := windowTexts()
+
+	// With a window of 1 the in-topic jitter cuts the topic into pieces;
+	// with a window of 3 it does not. minSim 0.35 sits between the
+	// smoothed in-topic values and the smoothed boundary value.
+	w1, err := New(tokenizer.Character{}, embed.Hashing{}, 512, 0.35)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w3, err := New(tokenizer.Character{}, embed.Hashing{}, 512, 0.35, SimilarityWindow(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	splits := func(c Chunker) int {
+		t.Helper()
+		chunks, err := c.Chunk(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertchunk.Split(t, original, chunks)
+		return len(chunks)
+	}
+
+	got1, got3 := splits(w1), splits(w3)
+	if got1 <= got3 {
+		t.Fatalf("window 1 should cut more than window 3: w1=%d w3=%d", got1, got3)
+	}
+	if got3 != 2 {
+		t.Fatalf("window 3 should keep each topic whole: got %d chunks, want 2", got3)
+	}
+}
+
+func TestSimilarityWindowValidation(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(tokenizer.Character{}, embed.Hashing{}, 8, 0, SimilarityWindow(0))
+	if err == nil || !strings.Contains(err.Error(), "similarity window must be >= 1") {
+		t.Fatalf("err=%v", err)
+	}
+}
