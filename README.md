@@ -150,8 +150,10 @@ finished part; retrieval is enough to try, not enough to deploy.
   budget unless `-tokenizer tiktoken` is set.
 - `-embedder hashing` is bag-of-words similarity, not a neural model.
   `-embedder openai` is a real model and needs network and a key.
-- The only store is a JSONL file scanned linearly, so search is brute
-  force over whatever the file holds.
+- The stores are a JSONL file and a SQLite database, both scanned
+  linearly, so search is brute force over whatever the file holds. The
+  store interface is where an approximate-nearest-neighbor backend
+  would slot in if one ever earns its place.
 - `POST /v1/index` keeps vectors in process memory; they are gone when
   the server exits.
 - A query must use the same embedder that built the index; a mismatch is
@@ -171,7 +173,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-tokenizer` | `character` | `character`, `word`, or `tiktoken` (ignored by `fast`) |
 | `-size` | `512` | max tokens per chunk; **max bytes** for `fast` |
 | `-overlap` | `0` | token overlap; token chunker only |
-| `-index` | | optional JSONL file of chunk embeddings |
+| `-index` | | optional index file of chunk embeddings; `.db`/`.sqlite`/`.sqlite3` names a SQLite database, anything else JSONL |
 | `-embedder` | `hashing` | `hashing` or `openai` (used by `semantic` and `-index`) |
 | `-context` | `0` | neighbor tokens copied into `context` (0 disables) |
 | `-context-mode` | `prefix` | `prefix` or `suffix` |
@@ -230,18 +232,18 @@ A chunk that would hold nothing but whitespace is never emitted: when a paragrap
 
 `-embedder hashing` is local and needs no network. `-embedder openai` calls an OpenAI-compatible `/v1/embeddings` API (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`). One HTTP request per batch.
 
-`-index` writes chunks plus vectors from the selected embedder to JSONL.
+`-index` writes chunks plus vectors from the selected embedder to an index file. The file's extension picks the store: `.db` (or `.sqlite`, `.sqlite3`) opens a SQLite database — one table, one row per chunk, keyed by text and offsets so a re-upserted chunk updates rather than duplicates, and vectors stored as float32 — while any other name writes JSONL. The two stores return the same ranking, so switching one for the other is a persistence choice, not a retrieval choice; the SQLite file is incremental (an upsert writes the rows it touched) and reopens across processes, where the JSONL store rewrites its file on every upsert.
+
+```bash
+nibble -index docs.db docs.txt
+nibble -query "how do cats sleep" -index docs.db -k 3
+```
 
 `-embed` puts the vector on each chunk in the JSON on stdout, so you can look at embeddings without writing an index. Every input in the run is embedded together in bounded batches, so a directory does not cost one request per file nor one unbounded request. With `-index` the vectors are reused rather than computed twice, and are stored once (on the record, not also on the chunk). A chunk's vector is computed from `context + text` where `context` is set, matching what `-index` stores.
 
 `-query` searches an existing index and prints the top `-k` hits as JSON, each with its score and the chunk it points at. It reads no input, so it never waits on stdin. Use the same `-embedder` that built the index: a query embedded by a different model has a different width, and that is reported as an error rather than scored as a meaningless ranking.
 
 `-scoring` picks how hits are ranked. `dense` is cosine over the stored vectors, the default and the only mode that needs the embedder. `bm25` ranks by term overlap over the index texts and needs no embedder at all — it works on an index built without vectors, and it is the better ranking when the query is a rare word the vector model dilutes. `hybrid` blends both: `weight * dense + (1-weight) * bm25`, with the BM25 side normalized to the index's own maximum first, since BM25 scores are unbounded and would otherwise swamp the blend. Scores across the three modes are not comparable — each is its own measure.
-
-```bash
-nibble -index docs.jsonl docs.txt
-nibble -query "how do cats sleep" -index docs.jsonl -k 3
-```
 
 `-context` / `-context-mode` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. This is separate from `-overlap` (token windows).
 

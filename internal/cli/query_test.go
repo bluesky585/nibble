@@ -326,3 +326,31 @@ func TestRunQueryBadScoring(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
 }
+
+// A .db index is a SQLite file, not JSONL: the same build-and-query
+// flow works through the other store, and the file it leaves behind is
+// a database rather than a line-per-record document.
+func TestRunQuerySQLiteIndex(t *testing.T) {
+	t.Parallel()
+
+	for _, scoring := range []string{"dense", "bm25", "hybrid"} {
+		path := filepath.Join(t.TempDir(), "idx.db")
+		buildIndex(t, path, "Cats sleep on mats. Quantum chromodynamics is hard.", 5)
+
+		var stdout, stderr bytes.Buffer
+		code := Run(
+			[]string{"-query", "cats", "-index", path, "-k", "1", "-scoring", scoring},
+			strings.NewReader(""), &stdout, &stderr,
+		)
+		if code != 0 {
+			t.Fatalf("%s: exit %d stderr=%s", scoring, code, stderr.String())
+		}
+		var hits []store.Hit
+		if err := json.Unmarshal(stdout.Bytes(), &hits); err != nil {
+			t.Fatalf("%s: %v", scoring, err)
+		}
+		if len(hits) != 1 || !strings.Contains(hits[0].Record.Chunk.Text, "Cats") {
+			t.Fatalf("%s: want the cats sentence, got %+v", scoring, hits)
+		}
+	}
+}

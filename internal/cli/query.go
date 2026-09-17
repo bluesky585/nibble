@@ -29,16 +29,17 @@ func runQuery(query, path, scoringName string, hybridWeight float64, k int, emb 
 		return 2
 	}
 
-	st, err := store.OpenJSONL(path)
+	st, closeIndex, err := openIndex(path)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	defer closeIndex()
 
 	var hits []store.Hit
 	switch scoringName {
 	case "dense":
-		hits, err = denseHits(st, query, k, emb, stderr)
+		hits, err = denseHits(st, query, k, emb)
 	case "bm25":
 		hits, err = bm25Hits(st, query, k)
 	case "hybrid":
@@ -46,7 +47,7 @@ func runQuery(query, path, scoringName string, hybridWeight float64, k int, emb 
 			fmt.Fprintf(stderr, "-hybrid-weight must be in [0, 1], got %v\n", hybridWeight)
 			return 2
 		}
-		hits, err = hybridHits(st, query, k, emb, hybridWeight, stderr)
+		hits, err = hybridHits(st, query, k, emb, hybridWeight)
 	default:
 		fmt.Fprintf(stderr, "unknown -scoring %q: use dense, bm25, or hybrid\n", scoringName)
 		return 2
@@ -69,7 +70,7 @@ func runQuery(query, path, scoringName string, hybridWeight float64, k int, emb 
 }
 
 // denseHits is the cosine ranking, as the store has always returned it.
-func denseHits(st *store.JSONL, query string, k int, emb embed.Embedder, stderr io.Writer) ([]store.Hit, error) {
+func denseHits(st store.Store, query string, k int, emb embed.Embedder) ([]store.Hit, error) {
 	vecs, err := emb.Embed([]string{query})
 	if err != nil {
 		return nil, err
@@ -82,17 +83,12 @@ func denseHits(st *store.JSONL, query string, k int, emb embed.Embedder, stderr 
 
 // bm25Hits ranks by term overlap over every record in the index. The
 // chunk texts, not the vectors, are the corpus.
-func bm25Hits(st *store.JSONL, query string, k int) ([]store.Hit, error) {
-	records := st.Records()
-	if len(records) == 0 {
-		return nil, nil
+func bm25Hits(st store.Store, query string, k int) ([]store.Hit, error) {
+	records, err := indexRecords(st)
+	if err != nil {
+		return nil, err
 	}
-	docs := make([]chunk.Chunk, len(records))
-	for i, rec := range records {
-		docs[i] = rec.Chunk
-	}
-	ranker := scoring.NewBM25(docs, scoring.WordTerms)
-	return rankRecords(records, func(i int) float64 { return ranker.Score(i, query) }, k), nil
+	return rankByTerms(records, query, nil, 0, k)
 }
 
 // hybridHits blends the cosine ranking with BM25. The dense side keeps
@@ -100,8 +96,11 @@ func bm25Hits(st *store.JSONL, query string, k int) ([]store.Hit, error) {
 // index before blending, because BM25 scores are unbounded while cosine
 // is not, and an unbounded side would dominate the blend at any weight
 // in between.
-func hybridHits(st *store.JSONL, query string, k int, emb embed.Embedder, weight float64, stderr io.Writer) ([]store.Hit, error) {
-	records := st.Records()
+func hybridHits(st store.Store, query string, k int, emb embed.Embedder, weight float64) ([]store.Hit, error) {
+	records, err := indexRecords(st)
+	if err != nil {
+		return nil, err
+	}
 	if len(records) == 0 {
 		return nil, nil
 	}
@@ -117,29 +116,43 @@ func hybridHits(st *store.JSONL, query string, k int, emb embed.Embedder, weight
 	if err != nil {
 		return nil, err
 	}
+	return rankByTerms(records, query, denseScores, weight, k)
+}
 
+// rankByTerms scores every record with BM25 and returns the top k. A
+// non-nil dense slice blends it in: weight * dense + (1-weight) * bm25,
+// with the sparse side normalized to the corpus maximum first, since
+// BM25 scores are unbounded and would otherwise swamp the blend.
+func rankByTerms(records []store.Record, query string, dense []float64, weight float64, k int) ([]store.Hit, error) {
+	if len(records) == 0 {
+		return nil, nil
+	}
 	docs := make([]chunk.Chunk, len(records))
 	for i, rec := range records {
 		docs[i] = rec.Chunk
 	}
 	ranker := scoring.NewBM25(docs, scoring.WordTerms)
-	sparseScores := make([]float64, len(records))
+	sparse := make([]float64, len(records))
 	maxSparse := 0.0
 	for i := range records {
-		sparseScores[i] = ranker.Score(i, query)
-		if sparseScores[i] > maxSparse {
-			maxSparse = sparseScores[i]
+		sparse[i] = ranker.Score(i, query)
+		if sparse[i] > maxSparse {
+			maxSparse = sparse[i]
 		}
 	}
 	if maxSparse > 0 {
-		for i := range sparseScores {
-			sparseScores[i] /= maxSparse
+		for i := range sparse {
+			sparse[i] /= maxSparse
 		}
 	}
 
 	merged := make([]float64, len(records))
 	for i := range merged {
-		merged[i] = weight*denseScores[i] + (1-weight)*sparseScores[i]
+		if dense == nil {
+			merged[i] = sparse[i]
+			continue
+		}
+		merged[i] = weight*dense[i] + (1-weight)*sparse[i]
 	}
 	return rankRecords(records, func(i int) float64 { return merged[i] }, k), nil
 }
