@@ -119,10 +119,18 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// One batch call for every input, not one Chunk call per file: the
 	// results come back indexed like the jobs, and the error names the
-	// input that failed.
-	texts := make([]string, len(jobs))
+	// input that failed. Tabular jobs (CSV/TSV) are excluded — their
+	// rows are already the chunks, and running a chunker over them
+	// would cut rows apart.
+	texts := make([]string, 0, len(jobs))
+	positions := make([]int, len(jobs)) // job index -> batch index, -1 for tabular
 	for i, job := range jobs {
-		texts[i] = job.text
+		if job.raw {
+			positions[i] = -1
+			continue
+		}
+		positions[i] = len(texts)
+		texts = append(texts, job.text)
 	}
 	batched, err := batch.Chunk(c, texts)
 	if err != nil {
@@ -133,7 +141,16 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var all []chunk.Chunk
 	docs := make([]chunk.Document, 0, len(jobs))
 	for i, job := range jobs {
-		chunks := batched[i]
+		var chunks []chunk.Chunk
+		if job.raw {
+			chunks, err = readTabular(job.sep, strings.NewReader(job.text))
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+		} else {
+			chunks = batched[positions[i]]
+		}
 		if *contextN != 0 {
 			var err error
 			switch *contextMode {
@@ -233,6 +250,11 @@ func writeHTML(path string, docs []chunk.Document) error {
 type inputJob struct {
 	path string
 	text string
+	// raw marks tabular input (CSV/TSV): the text is already a set of
+	// rows, so the chunker must not run over it. The chunks are parsed
+	// in readTabular with the delimiter named here.
+	raw bool
+	sep rune
 }
 
 func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJob, error) {
@@ -247,7 +269,8 @@ func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJo
 			if err != nil {
 				return nil, err
 			}
-			jobs = append(jobs, inputJob{path: rel, text: string(b)})
+			sep, tabular := sepForExt(rel)
+			jobs = append(jobs, inputJob{path: rel, text: string(b), raw: tabular, sep: sep})
 		}
 		return jobs, nil
 	}
@@ -255,7 +278,13 @@ func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJo
 	if err != nil {
 		return nil, err
 	}
-	return []inputJob{{path: "", text: text}}, nil
+	// A file argument can name a tabular format; stdin has no name, so
+	// it always reads as plain text.
+	sep, raw := rune(0), false
+	if len(files) == 1 {
+		sep, raw = sepForExt(files[0])
+	}
+	return []inputJob{{path: "", text: text, raw: raw, sep: sep}}, nil
 }
 
 func readInput(files []string, stdin io.Reader) (string, error) {
