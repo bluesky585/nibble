@@ -3,6 +3,7 @@ package chunkerfuzz
 import (
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
@@ -267,9 +268,39 @@ func checkBudget(t *testing.T, s subject, chunks []chunk.Chunk) {
 		// given. A chunk holding a single token wider than the whole budget
 		// is the one allowed exception, and no ruler here produces it: a
 		// single token counts once.
-		if c.TokenCount > s.size {
+		//
+		// Under budgetBlankMerge the tally is checked against the budget
+		// plus the chunk's edge whitespace below, so the flat check does
+		// not apply.
+		if s.budget != budgetBlankMerge && c.TokenCount > s.size {
 			t.Fatalf("%s: chunk %d reports %d tokens, over budget %d: %q",
 				s.name, i, c.TokenCount, s.size, c.Text)
+		}
+		// Under budgetBlankMerge the tally may exceed size only by the
+		// whitespace a blank chunk merged in, and that whitespace always
+		// sits at the edges of the chunk: a trailing blank joined to the
+		// previous chunk, a leading one carried onto the next. The merged
+		// whitespace was tallied piece by piece, so recounting it as one
+		// run is not an upper bound; the rune count is. Every token here
+		// covers at least one rune, so a string never counts for more
+		// tokens than it has runes, and size plus the edge-whitespace
+		// runes bounds the tally. Anything beyond it means content was
+		// packed over the budget.
+		if s.budget == budgetBlankMerge && c.TokenCount > s.size {
+			runes := []rune(c.Text)
+			lead := 0
+			for lead < len(runes) && unicode.IsSpace(runes[lead]) {
+				lead++
+			}
+			trail := len(runes)
+			for trail > lead && unicode.IsSpace(runes[trail-1]) {
+				trail--
+			}
+			ws := lead + len(runes) - trail
+			if c.TokenCount > s.size+ws {
+				t.Fatalf("%s: chunk %d reports %d tokens, over budget %d by more than its %d edge-whitespace tokens: %q",
+					s.name, i, c.TokenCount, s.size, ws, c.Text)
+			}
 		}
 		// Under budgetReported the recount is a different measurement and is
 		// not asserted (see the budget comment).

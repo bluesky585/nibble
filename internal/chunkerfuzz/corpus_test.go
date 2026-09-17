@@ -157,6 +157,15 @@ const (
 	// reattaches a fence line to a boundary chunk, and a table row has to
 	// carry its header, so neither can fit a small budget.
 	budgetNone
+
+	// budgetBlankMerge means the recount bound holds, but the chunker's own
+	// tally may exceed size by exactly the whitespace a blank chunk merged
+	// into a neighbor: when a paragraph fills the budget, its trailing
+	// blank-line separator becomes a content-free chunk, and recursive
+	// merges it rather than emit retrieval noise. The overflow is bounded
+	// by the separator width, and only the chunk that absorbed a blank (or
+	// one waiting as a prefix before the first content) may exceed it.
+	budgetBlankMerge
 )
 
 // subject is one chunker under test, with the ruler that measures it and the
@@ -179,7 +188,7 @@ var ctors = []struct {
 }{
 	{"recursive", func(tok tokenizer.Tokenizer, size int) (chunker, error) {
 		return recursive.New(tok, size, nil)
-	}, budgetTrue},
+	}, budgetBlankMerge},
 	{"sentence", func(tok tokenizer.Tokenizer, size int) (chunker, error) {
 		return sentencechunker.New(tok, size, nil)
 	}, budgetTrue},

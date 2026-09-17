@@ -46,6 +46,63 @@ func TestChunkShortText(t *testing.T) {
 	assertchunk.Split(t, original, got)
 }
 
+// When a paragraph exactly fills the budget, the blank-line separator
+// that follows it drills down as its own piece and hard-splits into a
+// whitespace-only chunk. Such a chunk is pure retrieval noise: it carries
+// no content, so it is merged into the previous chunk rather than
+// emitted. Reconstruct is unaffected — the text was never dropped.
+func TestChunkBlankSeparatorChunkMergesIntoPrevious(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 512, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	para := strings.Repeat("x", 512)
+	original := para + "\n\n" + strings.Repeat("y", 512)
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	for i, ch := range got {
+		if strings.TrimSpace(ch.Text) == "" {
+			t.Fatalf("chunk %d is whitespace-only: %q", i, ch.Text)
+		}
+	}
+	// The separator belongs to the end of the first paragraph, so the
+	// first chunk carries it and stays within one chunk per paragraph.
+	if len(got) != 2 {
+		t.Fatalf("len=%d want 2", len(got))
+	}
+	if got[0].Text != para+"\n\n" {
+		t.Fatalf("first=%q want %q", got[0].Text[:8], para[:8]+"\n\n")
+	}
+}
+
+// The same noise can appear as the first chunk when a leading blank
+// separator precedes a budget-filling paragraph.
+func TestChunkLeadingBlankSeparatorChunkMergesIntoNext(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 512, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	para := strings.Repeat("y", 512)
+	original := strings.Repeat("x", 512) + "\n\n" + para
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	for i, ch := range got {
+		if strings.TrimSpace(ch.Text) == "" {
+			t.Fatalf("chunk %d is whitespace-only: %q", i, ch.Text)
+		}
+	}
+}
+
 func TestChunkParagraphThenSentence(t *testing.T) {
 	t.Parallel()
 

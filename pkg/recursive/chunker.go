@@ -48,7 +48,66 @@ func New(tok tokenizer.Tokenizer, size int, rules []Level) (Chunker, error) {
 
 // Chunk splits text using the rule stack.
 func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
-	return c.chunkAt(text, 0, 0)
+	chunks, err := c.chunkAt(text, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	return mergeBlank(chunks), nil
+}
+
+// mergeBlank absorbs chunks that hold only whitespace into a
+// neighboring chunk. Such a chunk appears when a paragraph exactly
+// fills the budget: its trailing blank-line separator becomes its own
+// piece, overflows to the next group, and hard-splits as a chunk with
+// no content in it. It is merged rather than dropped so reconstruct
+// still holds; the neighbor may then exceed Size by the separator's
+// width. Blanks before the first chunk with content merge forward into
+// it, in order. If every chunk is blank the input is left alone:
+// returning nothing would hide it.
+func mergeBlank(chunks []chunk.Chunk) []chunk.Chunk {
+	hasContent := false
+	for _, ch := range chunks {
+		if strings.TrimSpace(ch.Text) != "" {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
+		return chunks
+	}
+
+	var out []chunk.Chunk
+	var carry strings.Builder
+	carryStart := 0
+	carryTokens := 0
+	for _, ch := range chunks {
+		if strings.TrimSpace(ch.Text) == "" {
+			if len(out) == 0 {
+				// No chunk with content to merge into yet, so the blank
+				// waits to become the prefix of the next one.
+				if carry.Len() == 0 {
+					carryStart = ch.Start
+				}
+				carry.WriteString(ch.Text)
+				carryTokens += ch.TokenCount
+				continue
+			}
+			prev := &out[len(out)-1]
+			prev.Text += ch.Text
+			prev.End = ch.End
+			prev.TokenCount += ch.TokenCount
+			continue
+		}
+		if carry.Len() > 0 {
+			ch.Text = carry.String() + ch.Text
+			ch.Start = carryStart
+			ch.TokenCount += carryTokens
+			carry.Reset()
+			carryTokens = 0
+		}
+		out = append(out, ch)
+	}
+	return out
 }
 
 func (c Chunker) chunkAt(text string, level, offset int) ([]chunk.Chunk, error) {
