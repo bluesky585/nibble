@@ -203,7 +203,7 @@ while a wrong one would split a statement in half.
 
 `markdown` routes each region of a document to the chunker that fits it: fenced code blocks to `code`, GFM tables to `table`, everything else to `recursive`. Regions are disjoint and cover the whole input, so reconstruct still holds. A fenced block's info string names its language, so each block is cut with the rules for what it holds (`python` blocks by Python rules, `go` blocks by Go rules) rather than being parsed as the wrong one; `-lang` is rejected here, since the document supplies it. A code block is split with its fence lines removed and reattached to the boundary chunks, since the fence syntax is not part of the language inside; this can push a boundary chunk slightly over `-size`.
 
-`semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full.
+`semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full. `semantic.SimilarityWindow(n)` widens that test from adjacent sentence pairs to the mean vectors of `n` sentences on each side of the cut point. A window of 2 or 3 smooths single-sentence wording jitter that would otherwise split an unchanged topic, at the cost of needing `n` sentences of context on both sides; points without it are not evaluated. Consecutive points that fall below the threshold are one boundary, cut at the deepest.
 
 `sentence` and `semantic` cut a single sentence that is over budget on its own into token windows, so a long run without punctuation cannot push a chunk past `-size`. The only chunk that may still exceed `-size` is one holding a single token wider than the budget.
 
