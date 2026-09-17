@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/bluesky585/nibble/internal/buildchunk"
+	"github.com/bluesky585/nibble/pkg/batch"
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/embed"
 	olap "github.com/bluesky585/nibble/pkg/overlap"
@@ -103,18 +104,25 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// One batch call for every input, not one Chunk call per file: the
+	// results come back indexed like the jobs, and the error names the
+	// input that failed.
+	texts := make([]string, len(jobs))
+	for i, job := range jobs {
+		texts[i] = job.text
+	}
+	batched, err := batch.Chunk(c, texts)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
 	var all []chunk.Chunk
 	docs := make([]chunk.Document, 0, len(jobs))
-	for _, job := range jobs {
-		chunks, err := c.Chunk(job.text)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if chunks == nil {
-			chunks = []chunk.Chunk{}
-		}
+	for i, job := range jobs {
+		chunks := batched[i]
 		if *contextN != 0 {
+			var err error
 			switch *contextMode {
 			case "prefix":
 				chunks, err = olap.Prefix(chunks, tok, *contextN)
