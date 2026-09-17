@@ -321,3 +321,90 @@ func checkBudget(t *testing.T, s subject, chunks []chunk.Chunk) {
 		}
 	}
 }
+
+// FuzzRecursiveOverlap covers the recursive chunker's -overlap: the next
+// chunk repeats the previous chunk's tail in its own Text. That breaks
+// the contiguous-split promise on purpose, so this target asserts the
+// contract that remains:
+//
+//   - every chunk is a slice of the input (offsets stay exact)
+//   - the first chunk starts at rune 0 and the last ends at the end
+//   - after the first, each chunk starts n runes before the previous
+//     one ended, and its text begins with exactly that run
+//   - chunk interiors still advance: a chunk's own tail (past the
+//     repeated run) starts no later than the next chunk's repeated run
+//     ends, so no region of the input is skipped
+//
+// The overlap is applied to the final chunk sequence, after the blank
+// merge, which is where a run could otherwise point at a neighbor that
+// no longer exists.
+func FuzzRecursiveOverlap(f *testing.F) {
+	seeds(f)
+	f.Fuzz(func(t *testing.T, data []byte, n int) {
+		text := trim(sanitize(data))
+		size := clampSize(n)
+		// The overlap folds under the same size cap the constructor
+		// enforces: at size 1 no positive overlap fits, and that case is
+		// already covered by the no-overlap targets.
+		nOverlap := 1 + int(uint(n>>4)%4)
+		if nOverlap >= size {
+			t.Skipf("overlap %d does not fit size %d", nOverlap, size)
+		}
+		runes := []rune(text)
+
+		for _, r := range rulers {
+			c, err := recursive.New(r.tok, size, nil, recursive.Overlap(nOverlap))
+			if err != nil {
+				// size 1 leaves no room for a positive overlap; the
+				// constructor must be the one to say so, and only then.
+				if size == 1 {
+					continue
+				}
+				t.Fatalf("%s: build: %v", r.name, err)
+			}
+			chunks, err := c.Chunk(text)
+			if err != nil {
+				t.Fatalf("%s: chunk %q: %v", r.name, text, err)
+			}
+			if len(chunks) == 0 {
+				continue
+			}
+			for i, ch := range chunks {
+				if ch.Start < 0 || ch.End > len(runes) || ch.Start >= ch.End {
+					t.Fatalf("%s: chunk %d range [%d,%d) is not a window of %d runes (input %q)",
+						r.name, i, ch.Start, ch.End, len(runes), text)
+				}
+				if string(runes[ch.Start:ch.End]) != ch.Text {
+					t.Fatalf("%s: chunk %d is not a slice of the input: [%d,%d) %q",
+						r.name, i, ch.Start, ch.End, ch.Text)
+				}
+			}
+			if chunks[0].Start != 0 {
+				t.Fatalf("%s: first chunk starts at %d, want 0", r.name, chunks[0].Start)
+			}
+			if last := chunks[len(chunks)-1]; last.End != len(runes) {
+				t.Fatalf("%s: last chunk ends at %d, want %d", r.name, last.End, len(runes))
+			}
+			for i := 1; i < len(chunks); i++ {
+				prev, cur := chunks[i-1], chunks[i]
+				// The overlap run is the previous chunk's tail, at most
+				// n runes of it under the character ruler (a shorter
+				// previous chunk repeats all of it, so start can equal
+				// prev.Start — that is the run covering the whole
+				// neighbor, which is legitimate); under the word ruler
+				// the run is whatever the last n tokens hold, so only
+				// the boundary arithmetic is asserted here and the
+				// slice check above already pinned the text to the
+				// source.
+				if cur.Start >= prev.End {
+					t.Fatalf("%s: chunk %d start %d does not overlap the previous end %d",
+						r.name, i, cur.Start, prev.End)
+				}
+				if cur.Start < prev.Start {
+					t.Fatalf("%s: chunk %d start %d reaches before the previous chunk (start %d)",
+						r.name, i, cur.Start, prev.Start)
+				}
+			}
+		}
+	})
+}

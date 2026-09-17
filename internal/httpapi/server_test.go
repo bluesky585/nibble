@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
+	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/embed"
 )
 
@@ -201,15 +202,37 @@ func TestChunkBadOptions(t *testing.T) {
 	}
 }
 
-func TestChunkOverlapRejected(t *testing.T) {
+// Recursive accepts overlap: the next chunk repeats the previous
+// chunk's tail, the way a token window widens.
+func TestChunkRecursiveOverlap(t *testing.T) {
 	t.Parallel()
 
-	body := `{"text":"hi","chunker":"recursive","overlap":1}`
+	original := strings.Repeat("word ", 8)
+	body, err := json.Marshal(map[string]any{
+		"text": original, "chunker": "recursive", "size": 8, "overlap": 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chunk", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chunk", bytes.NewReader(body))
 	Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Chunks []chunk.Chunk `json:"chunks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Chunks) < 2 {
+		t.Fatalf("chunks=%d, want several", len(resp.Chunks))
+	}
+	for i := 1; i < len(resp.Chunks); i++ {
+		if resp.Chunks[i].Start != resp.Chunks[i-1].End-2 {
+			t.Fatalf("chunk %d start=%d want %d", i, resp.Chunks[i].Start, resp.Chunks[i-1].End-2)
+		}
 	}
 }
 
