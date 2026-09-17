@@ -35,6 +35,15 @@ type Piece struct {
 	End   int
 }
 
+// Texts returns the text of each piece, in order, for one batch call.
+func Texts(pieces []Piece) []string {
+	texts := make([]string, len(pieces))
+	for i, p := range pieces {
+		texts[i] = p.Text
+	}
+	return texts
+}
+
 // Text splits text on Delimiters. Join of piece texts always equals text.
 func Text(text string, opt Options) ([]Piece, error) {
 	if opt.MinRunes < 0 {

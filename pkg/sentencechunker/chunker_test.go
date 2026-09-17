@@ -6,6 +6,7 @@ import (
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
+	"github.com/bluesky585/nibble/pkg/split"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
 
@@ -191,4 +192,70 @@ func utf8Count(s string) int {
 		n++
 	}
 	return n
+}
+
+func TestNewMinRunesMergesFragments(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 512, nil, MinRunes(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Under "." each abbreviation yields a piece of its own: "e." and
+	// "g." are 2 runes each. MinRunes 4 merges them forward, so no
+	// fragment becomes a chunk of its own.
+	original := "Test this, e.g. the first case. And one more."
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	for _, ch := range got {
+		if n := utf8Count(ch.Text); n < 4 {
+			t.Fatalf("chunk %q has %d runes, want >= 4", ch.Text, n)
+		}
+	}
+}
+
+func TestNewMinRunesZeroKeepsShortSentences(t *testing.T) {
+	t.Parallel()
+
+	// CJK sentences are short and complete; merging them would destroy
+	// real boundaries. This is why MinRunes is opt-in, not a default.
+	//
+	// Asserted at the split layer, not through Chunk: packing merges
+	// pieces that fit the budget, so chunk count says nothing about where
+	// the scanner cut. A MinRunes of 4 here would fuse 你好。 and 世界！
+	// into one piece before packing ever saw them.
+	c, err := New(tokenizer.Character{}, 512, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := "你好。世界！"
+	pieces, err := split.Text(original, split.Options{
+		Delimiters: DefaultDelimiters,
+		Attach:     split.AttachPrev,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pieces) != 2 {
+		t.Fatalf("pieces=%d want 2, one per sentence: %+v", len(pieces), pieces)
+	}
+
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+}
+
+func TestNewMinRunesValidation(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(tokenizer.Character{}, 8, nil, MinRunes(-1))
+	if err == nil || !strings.Contains(err.Error(), "min runes must be >= 0") {
+		t.Fatalf("err=%v", err)
+	}
 }

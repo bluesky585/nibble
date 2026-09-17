@@ -22,11 +22,22 @@ type Chunker struct {
 	tok    tokenizer.Tokenizer
 	size   int
 	delims []string
-	hard   tokenchunker.Chunker
+	// minRunes is passed to split.Text: pieces shorter than this merge
+	// into the next piece. 0 keeps every delimiter cut, which is right
+	// for CJK, where a 2-rune sentence is complete. A Latin-script
+	// caller may set it to absorb abbreviation fragments ("e." out of
+	// "e.g."); a value that is too high merges whole sentences together,
+	// so it is opt-in per caller rather than a default.
+	minRunes int
+	hard     tokenchunker.Chunker
 }
 
+// Option configures a Chunker beyond the required arguments.
+type Option func(*Chunker) error
+
 // New builds a Chunker. delims defaults to DefaultDelimiters when empty.
-func New(tok tokenizer.Tokenizer, size int, delims []string) (Chunker, error) {
+// Options are applied in order after the defaults are set.
+func New(tok tokenizer.Tokenizer, size int, delims []string, opts ...Option) (Chunker, error) {
 	if tok == nil {
 		return Chunker{}, fmt.Errorf("tokenizer is required")
 	}
@@ -40,7 +51,32 @@ func New(tok tokenizer.Tokenizer, size int, delims []string) (Chunker, error) {
 	if err != nil {
 		return Chunker{}, err
 	}
-	return Chunker{tok: tok, size: size, delims: delims, hard: hard}, nil
+	c := Chunker{tok: tok, size: size, delims: delims, hard: hard}
+	for _, opt := range opts {
+		if err := opt(&c); err != nil {
+			return Chunker{}, err
+		}
+	}
+	return c, nil
+}
+
+// MinRunes merges sentence pieces shorter than n runes into the next
+// piece before packing, absorbing delimiter fragments such as the "e."
+// that "e.g. this" yields under ".". The last piece may stay short.
+//
+// The zero value keeps every cut, which is the right default for CJK:
+// there a 2-rune sentence is complete, and merging it with its neighbor
+// destroys a real boundary. A Latin-script caller with abbreviation-heavy
+// text opts in with a small value, typically 4 to 12; too high a value
+// merges real sentences together. Counts are runes, not bytes.
+func MinRunes(n int) Option {
+	return func(c *Chunker) error {
+		if n < 0 {
+			return fmt.Errorf("min runes must be >= 0, got %d", n)
+		}
+		c.minRunes = n
+		return nil
+	}
 }
 
 // Chunk splits text into sentence-packed windows.
@@ -48,6 +84,7 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	pieces, err := split.Text(text, split.Options{
 		Delimiters: c.delims,
 		Attach:     split.AttachPrev,
+		MinRunes:   c.minRunes,
 	})
 	if err != nil {
 		return nil, err
@@ -57,8 +94,15 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	}
 
 	var out []chunk.Chunk
-	var buf []split.Piece
+	// buf holds indexes into pieces, not the pieces themselves, so flush
+	// can sum the precomputed counts instead of counting text again.
+	var buf []int
 	tokens := 0
+
+	// Every piece is measured before the packing loop starts, in one call
+	// per input rather than one call per piece inside flush. The counts
+	// are reused by both the packing decision and the emitted chunks.
+	counts := tokenizer.CountBatch(c.tok, split.Texts(pieces))
 
 	flush := func() error {
 		if len(buf) == 0 {
@@ -66,11 +110,12 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 		}
 		var b strings.Builder
 		n := 0
-		for _, p := range buf {
-			b.WriteString(p.Text)
-			n += c.tok.Count(p.Text)
+		for _, i := range buf {
+			b.WriteString(pieces[i].Text)
+			n += counts[i]
 		}
-		ch, err := chunk.New(b.String(), buf[0].Start, buf[len(buf)-1].End, n)
+		first, last := pieces[buf[0]], pieces[buf[len(buf)-1]]
+		ch, err := chunk.New(b.String(), first.Start, last.End, n)
 		if err != nil {
 			return err
 		}
@@ -80,8 +125,8 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 		return nil
 	}
 
-	for _, p := range pieces {
-		n := c.tok.Count(p.Text)
+	for i, p := range pieces {
+		n := counts[i]
 		if len(buf) > 0 && tokens+n > c.size {
 			if err := flush(); err != nil {
 				return nil, err
@@ -97,7 +142,7 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 			out = append(out, more...)
 			continue
 		}
-		buf = append(buf, p)
+		buf = append(buf, i)
 		tokens += n
 	}
 	if err := flush(); err != nil {
