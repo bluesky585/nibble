@@ -192,12 +192,16 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	if *indexPath != "" {
-		st, err := store.OpenJSONL(*indexPath)
+		st, closeIndex, err := openIndex(*indexPath)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := indexChunks(st, emb, all, *embedInJSON); err != nil {
+		err = indexChunks(st, emb, all, *embedInJSON)
+		if cerr := closeIndex(); err == nil {
+			err = cerr
+		}
+		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
