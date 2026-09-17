@@ -3,6 +3,7 @@ package semantic
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/bluesky585/nibble/internal/assertchunk"
 	"github.com/bluesky585/nibble/pkg/embed"
@@ -129,4 +130,30 @@ func TestChunkUnicode(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertchunk.Split(t, original, got)
+}
+
+func TestNewMinRunes(t *testing.T) {
+	t.Parallel()
+
+	if _, err := New(tokenizer.Character{}, embed.Hashing{}, 8, 0, MinRunes(-1)); err == nil || !strings.Contains(err.Error(), "min runes must be >= 0") {
+		t.Fatalf("err=%v", err)
+	}
+
+	// The option reaches the sentence split: with MinRunes 4 the "e." and
+	// "g." fragments merge forward, so no emitted chunk is a fragment.
+	c, err := New(tokenizer.Character{}, embed.Hashing{}, 512, 0, MinRunes(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := "Test this, e.g. the first case. And one more."
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	for _, ch := range got {
+		if n := utf8.RuneCountInString(ch.Text); n < 4 {
+			t.Fatalf("chunk %q has %d runes, want >= 4", ch.Text, n)
+		}
+	}
 }

@@ -77,17 +77,23 @@ of them can stand in for `recursive` above:
 | Package | Constructor | Cuts on |
 | --- | --- | --- |
 | `recursive` | `New(tok, size, rules)` | the largest of blank line / line / sentence / word that fits |
-| `sentencechunker` | `New(tok, size, delims)` | sentence ends only |
+| `sentencechunker` | `New(tok, size, delims, opts...)` | sentence ends only |
 | `tokenchunker` | `New(tok, size, overlap)` | fixed windows, optional repeat |
 | `fastchunker` | `New(size, delims)` | a delimiter near a **byte** budget; no tokenizer |
 | `tablechunker` | `New(tok, size)` | GFM table rows, with the header copied into `Context` |
 | `codechunker` | `New(tok, size, opts...)` | top-level declarations; `codechunker.Language("go")` |
 | `markdownchunker` | `New(tok, size)` | routes each region to the chunker that fits it |
-| `semantic` | `New(tok, emb, size, minSim)` | cosine similarity drops between sentences |
+| `semantic` | `New(tok, emb, size, minSim, opts...)` | cosine similarity drops between sentences |
 
 `nil` rules and delims mean the package defaults. `tokenizer.Character{}`,
 `tokenizer.Word{}`, and `tokenizer/tiktoken.New("cl100k_base")` are the three
-tokenizers.
+tokenizers. The sentence-based chunkers take one extra option:
+`sentencechunker.MinRunes(4)` merges sentence pieces shorter than 4 runes
+into the next piece, which absorbs abbreviation fragments such as the `e.`
+and `g.` that `e.g.` yields under a `.` delimiter. It is opt-in and off by
+default, because the right value depends on the script: in CJK a two-rune
+sentence is complete, and merging it with its neighbor destroys a real
+boundary.
 
 ### From the command line
 
