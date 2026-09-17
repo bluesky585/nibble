@@ -257,6 +257,12 @@ type inputJob struct {
 	// in readTabular with the delimiter named here.
 	raw bool
 	sep rune
+	// extract names the container format to pull plain text from
+	// before chunking: "html" or "epub". Empty reads the bytes as the
+	// text itself. Extraction happens in collectJobs, so by the time
+	// jobs reach the batch the text is plain and every later stage is
+	// format-blind.
+	extract string
 }
 
 func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJob, error) {
@@ -271,8 +277,11 @@ func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJo
 			if err != nil {
 				return nil, err
 			}
-			sep, tabular := sepForExt(rel)
-			jobs = append(jobs, inputJob{path: rel, text: string(b), raw: tabular, sep: sep})
+			job, err := makeJob(rel, b)
+			if err != nil {
+				return nil, err
+			}
+			jobs = append(jobs, job)
 		}
 		return jobs, nil
 	}
@@ -280,13 +289,16 @@ func collectJobs(dir, extCSV string, files []string, stdin io.Reader) ([]inputJo
 	if err != nil {
 		return nil, err
 	}
-	// A file argument can name a tabular format; stdin has no name, so
-	// it always reads as plain text.
-	sep, raw := rune(0), false
+	// A file argument can name a tabular or container format; stdin has
+	// no name, so it always reads as plain text.
 	if len(files) == 1 {
-		sep, raw = sepForExt(files[0])
+		job, err := makeJob(files[0], []byte(text))
+		if err != nil {
+			return nil, err
+		}
+		return []inputJob{job}, nil
 	}
-	return []inputJob{{path: "", text: text, raw: raw, sep: sep}}, nil
+	return []inputJob{{path: "", text: text}}, nil
 }
 
 func readInput(files []string, stdin io.Reader) (string, error) {
