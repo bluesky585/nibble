@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -395,5 +396,72 @@ func TestSearchHybridWeightRange(t *testing.T) {
 	Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "weight") {
 		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// A persistent API backs its index with a SQLite file: records survive
+// the process, so a restart on the same path resumes from what the last
+// process indexed. The memory API loses everything on exit, which is
+// the default it stays.
+func TestPersistentAPIResumes(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "api.db")
+
+	// First process: index and stop.
+	{
+		api, err := NewPersistent(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h := api.Handler()
+		idx := httptest.NewRecorder()
+		h.ServeHTTP(idx, httptest.NewRequest(
+			http.MethodPost,
+			"/v1/index",
+			strings.NewReader(`{"text":"cats sleep on mats. dogs bark all night.","chunker":"sentence","size":24}`),
+		))
+		if idx.Code != http.StatusOK {
+			t.Fatalf("index status %d body=%s", idx.Code, idx.Body.String())
+		}
+		if err := api.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Second process: the file is the index, and search finds it.
+	{
+		api, err := NewPersistent(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer api.Close()
+		h := api.Handler()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(
+			http.MethodPost,
+			"/v1/search",
+			strings.NewReader(`{"query":"cats","k":1}`),
+		))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("search status %d body=%s", rec.Code, rec.Body.String())
+		}
+		var resp searchResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Hits) != 1 || !strings.Contains(resp.Hits[0].Record.Chunk.Text, "cats") {
+			t.Fatalf("got %+v", resp.Hits)
+		}
+	}
+}
+
+// A persistent API refuses to open a path it cannot use, instead of
+// falling back to memory and pretending everything is fine.
+func TestPersistentAPIBadPath(t *testing.T) {
+	t.Parallel()
+
+	if _, err := NewPersistent(""); err == nil {
+		t.Fatal("empty path accepted")
 	}
 }

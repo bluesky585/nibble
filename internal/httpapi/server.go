@@ -3,8 +3,10 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/bluesky585/nibble/internal/buildchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
@@ -14,14 +16,49 @@ import (
 
 const maxBody = 10 << 20
 
-// API holds process-local indexed chunks.
+// API holds indexed chunks behind one handler. The store is either
+// process memory (the default, gone when the process exits) or a SQLite
+// file (NewPersistent, resumed by the next process on the same path).
+// A store is not safe for concurrent use, so every handler that touches
+// it goes through the API's mutex; the net/http package runs handlers
+// concurrently.
 type API struct {
+	mu  sync.Mutex
 	mem *store.Memory
+	sql *store.SQLite
 }
 
 // New returns an API with an empty memory store.
 func New() *API {
 	return &API{mem: &store.Memory{}}
+}
+
+// NewPersistent returns an API whose index lives in the SQLite file at
+// path. The file is created when missing and kept when present, so a
+// process started on the same path resumes from what the last one
+// indexed. Close releases the file.
+func NewPersistent(path string) (*API, error) {
+	if path == "" {
+		return nil, fmt.Errorf("index path is required")
+	}
+	sq, err := store.OpenSQLite(path)
+	if err != nil {
+		return nil, err
+	}
+	return &API{sql: sq}, nil
+}
+
+// Close releases a persistent API's file. A memory API closes to
+// nothing.
+func (a *API) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sql == nil {
+		return nil
+	}
+	err := a.sql.Close()
+	a.sql = nil
+	return err
 }
 
 // Handler is the HTTP API. Each call gets its own memory index.
@@ -93,11 +130,22 @@ func (a *API) indexText(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, errorResponse{Error: err.Error()})
 		return
 	}
-	if err := store.Index(a.mem, emb, chunks); err != nil {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.index(emb, chunks); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, indexResponse{Count: len(chunks)})
+}
+
+// index writes chunks to whichever store the API holds. The caller
+// holds a.mu.
+func (a *API) index(emb embed.Embedder, chunks []chunk.Chunk) error {
+	if a.sql != nil {
+		return store.Index(a.sql, emb, chunks)
+	}
+	return store.Index(a.mem, emb, chunks)
 }
 
 func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
@@ -138,17 +186,37 @@ func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
 		queryVec = vecs[0]
 	}
 
-	records := a.mem.Records()
-	scores, err := store.RankScores(records, req.Query, queryVec, req.Scoring, req.HybridWeight)
+	// The whole search holds the lock: a store is not safe for
+	// concurrent use, and an index arriving mid-search would otherwise
+	// change the corpus under the scores.
+	a.mu.Lock()
+	records, err := a.records()
+	if err == nil {
+		var scores []float64
+		scores, err = store.RankScores(records, req.Query, queryVec, req.Scoring, req.HybridWeight)
+		if err == nil {
+			hits := store.Rank(records, scores, req.K)
+			if hits == nil {
+				hits = []store.Hit{}
+			}
+			writeJSON(w, http.StatusOK, searchResponse{Hits: hits})
+		}
+	}
+	a.mu.Unlock()
 	if err != nil {
+		// A file read failure is a server fault; a bad scoring request
+		// is the caller's. RankScores produces the latter, records() the
+		// former, and both end here.
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
-		return
 	}
-	hits := store.Rank(records, scores, req.K)
-	if hits == nil {
-		hits = []store.Hit{}
+}
+
+// records returns the API's whole corpus. The caller holds a.mu.
+func (a *API) records() ([]store.Record, error) {
+	if a.sql != nil {
+		return a.sql.Records()
 	}
-	writeJSON(w, http.StatusOK, searchResponse{Hits: hits})
+	return a.mem.Records(), nil
 }
 
 func prepare(w http.ResponseWriter, r *http.Request) ([]chunk.Chunk, embed.Embedder, int, error) {
