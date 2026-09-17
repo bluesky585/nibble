@@ -34,6 +34,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	chunkerName := fs.String("chunker", "recursive", "chunker: recursive, sentence, token, fast, table, code, markdown, or semantic")
 	tokName := fs.String("tokenizer", "character", "tokenizer: character, word, or tiktoken (ignored by fast)")
 	lang := fs.String("lang", "", "language for -chunker code: go or python (empty detects it)")
+	rulesPath := fs.String("rules", "", "JSON file with a rule hierarchy for -chunker recursive (empty uses the defaults)")
 	size := fs.Int("size", 512, "max tokens per chunk (max bytes for fast)")
 	overlap := fs.Int("overlap", 0, "token overlap (token chunker only)")
 	indexPath := fs.String("index", "", "optional JSONL path to store chunk embeddings")
@@ -83,7 +84,19 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	c, err := buildchunk.New(*chunkerName, *tokName, *lang, *size, *overlap, emb)
+	// -rules names a file holding a JSON rule hierarchy. Read it here so
+	// buildchunk sees only the text, not where it came from.
+	var rulesText string
+	if *rulesPath != "" {
+		b, err := os.ReadFile(*rulesPath)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		rulesText = string(b)
+	}
+
+	c, err := buildchunk.New(*chunkerName, *tokName, *lang, rulesText, *size, *overlap, emb)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2

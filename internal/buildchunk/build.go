@@ -30,10 +30,15 @@ type Chunker interface {
 // recursive chunkers; the tokenizer applies to its prose and code parts.
 // lang names the language for the "code" chunker; empty detects it.
 // emb is used by the semantic chunker; nil means embed.Hashing.
-func New(chunkerName, tokName, lang string, size, overlap int, emb embed.Embedder) (Chunker, error) {
+// rulesJSON is a JSON rule hierarchy for the "recursive" chunker, parsed
+// by recursive.RulesFromJSON; empty uses the default rules.
+func New(chunkerName, tokName, lang, rulesJSON string, size, overlap int, emb embed.Embedder) (Chunker, error) {
 	if chunkerName == "fast" {
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		if rulesJSON != "" {
+			return nil, fmt.Errorf("-rules is only used with the recursive chunker")
 		}
 		return fastchunker.New(size, nil)
 	}
@@ -48,22 +53,38 @@ func New(chunkerName, tokName, lang string, size, overlap int, emb embed.Embedde
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
 		}
-		return recursive.New(tok, size, nil)
+		rules, err := recursive.RulesFromJSONOr(rulesJSON, nil)
+		if err != nil {
+			return nil, err
+		}
+		return recursive.New(tok, size, rules)
 	case "sentence":
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
 		}
+		if rulesJSON != "" {
+			return nil, fmt.Errorf("-rules is only used with the recursive chunker")
+		}
 		return sentencechunker.New(tok, size, nil)
 	case "token":
+		if rulesJSON != "" {
+			return nil, fmt.Errorf("-rules is only used with the recursive chunker")
+		}
 		return tokenchunker.New(tok, size, overlap)
 	case "table":
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
 		}
+		if rulesJSON != "" {
+			return nil, fmt.Errorf("-rules is only used with the recursive chunker")
+		}
 		return tablechunker.New(tok, size)
 	case "code":
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		if rulesJSON != "" {
+			return nil, fmt.Errorf("-rules is only used with the recursive chunker")
 		}
 		if lang == "" {
 			return codechunker.New(tok, size)
@@ -76,10 +97,16 @@ func New(chunkerName, tokName, lang string, size, overlap int, emb embed.Embedde
 		if lang != "" {
 			return nil, fmt.Errorf("-lang is only used with -chunker code; markdown reads it from each fence")
 		}
+		if rulesJSON != "" {
+			return nil, fmt.Errorf("-rules is only used with the recursive chunker")
+		}
 		return markdownchunker.New(tok, size)
 	case "semantic":
 		if overlap != 0 {
 			return nil, fmt.Errorf("overlap is only supported by the token chunker")
+		}
+		if rulesJSON != "" {
+			return nil, fmt.Errorf("-rules is only used with the recursive chunker")
 		}
 		if emb == nil {
 			emb = embed.Hashing{}
