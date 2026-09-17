@@ -138,7 +138,7 @@ source text, which is usually faster to check by eye than by reading JSON.
 - **Deterministic.** The same input and config always produce the same chunks.
 - **Separate measures.** Characters, bytes, and tokens are different rulers. Do not mix them.
 - **Small core.** Chunking is the product. Embeddings and stores are swap-in interfaces, not a catalog of vendors.
-- **One dependency, isolated.** The chunkers are standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package, and it is quarantined in `pkg/tokenizer/tiktoken`: every chunker, and `pkg/tokenizer` itself, still builds with no dependency. The programs import it, since a flag has to reach the tokenizer it names. The TypeScript client in `ts/` is a separate toolchain with its own dev dependencies (`typescript`, `@types/node`); it is a separate language for a separate consumer, and nothing in Go imports it.
+- **One dependency, isolated.** The chunkers are standard library only. A real token budget needs a BPE vocabulary, so `-tokenizer tiktoken` pulls in one third-party package, and it is quarantined in `pkg/tokenizer/tiktoken`: every chunker, and `pkg/tokenizer` itself, still builds with no dependency. The programs import it, since a flag has to reach the tokenizer it names. HTML and EPUB extraction (`pkg/extract`) is quarantined the same way: it uses the official `golang.org/x/net` HTML parser, and every chunker still builds without it. The TypeScript client in `ts/` is a separate toolchain with its own dev dependencies (`typescript`, `@types/node`); it is a separate language for a separate consumer, and nothing in Go imports it.
 - **English only.** Code, comments, commit messages, and docs in this repo are written in English.
 
 ## Status
@@ -176,7 +176,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-context` | `0` | neighbor tokens copied into `context` (0 disables) |
 | `-context-mode` | `prefix` | `prefix` or `suffix` |
 | `-dir` | | recursive directory (not with a file argument) |
-| `-ext` | `.txt,.md` | extensions for `-dir` (`.csv` and `.tsv` also work) |
+| `-ext` | `.txt,.md` | extensions for `-dir` (`.csv`, `.tsv`, `.html`, `.epub` also work) |
 | `-lang` | | language for `-chunker code`: `go` or `python` (empty detects it) |
 | `-rules` | | JSON file with a rule hierarchy for `-chunker recursive` |
 | `-html` | | write an HTML page of the source colored by chunk |
@@ -193,6 +193,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 `table` splits GitHub-flavored Markdown tables by row. Later row-groups copy the header into `context` so retrieval keeps column names; `text` stays a slice of the original, so reconstruct still works.
 
 CSV and TSV files are read as tabular input wherever a file or `-dir` entry is accepted: one chunk per data row, with the column names carried in `context` the same way. Quoted fields, embedded delimiters, and embedded newlines are decoded by the CSV reader. The row is the unit of meaning — a row wider than `-size` is never cut, since splitting one destroys the column-to-value pairing. The header row is metadata, not content, so it never becomes a chunk; a file with no data rows yields none.
+
+HTML (`.html`, `.htm`, `.xhtml`) and EPUB (`.epub`) files are extracted to plain text before chunking, wherever a file or `-dir` entry is accepted. Block-level tags become the paragraph breaks the recursive rules split on, inline tags disappear, script and style content is dropped, and entities decode to characters. An EPUB's spine, not the archive's file order, decides the sequence of its documents. What remains is ordinary text — offsets point into the extracted text, and reconstruct holds against it — so the chunkers never see the markup.
 
 `code` splits source on top-level declarations, keeping a doc comment or
 decorator with the declaration it documents. `-lang go` or `-lang python`
