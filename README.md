@@ -176,7 +176,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-context` | `0` | neighbor tokens copied into `context` (0 disables) |
 | `-context-mode` | `prefix` | `prefix` or `suffix` |
 | `-dir` | | recursive directory (not with a file argument) |
-| `-ext` | `.txt,.md` | extensions for `-dir` |
+| `-ext` | `.txt,.md` | extensions for `-dir` (`.csv` and `.tsv` also work) |
 | `-lang` | | language for `-chunker code`: `go` or `python` (empty detects it) |
 | `-rules` | | JSON file with a rule hierarchy for `-chunker recursive` |
 | `-html` | | write an HTML page of the source colored by chunk |
@@ -189,6 +189,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 `tiktoken` counts with a real BPE vocabulary, so `-size` is a model's token budget: `-tokenizer tiktoken -size 512` means 512 cl100k_base tokens. The encoding table is not embedded. The first use downloads it once and caches it on disk (`TIKTOKEN_CACHE_DIR` overrides the location), so a run that never selects this tokenizer never touches the network. Pieces are cut on character boundaries rather than raw token boundaries, because a BPE token can end inside a character and offsets are rune ranges; a token ending mid-character yields an empty piece, so `Count` still equals `len(Split)` and joining the pieces still restores the input.
 
 `table` splits GitHub-flavored Markdown tables by row. Later row-groups copy the header into `context` so retrieval keeps column names; `text` stays a slice of the original, so reconstruct still works.
+
+CSV and TSV files are read as tabular input wherever a file or `-dir` entry is accepted: one chunk per data row, with the column names carried in `context` the same way. Quoted fields, embedded delimiters, and embedded newlines are decoded by the CSV reader. The row is the unit of meaning — a row wider than `-size` is never cut, since splitting one destroys the column-to-value pairing. The header row is metadata, not content, so it never becomes a chunk; a file with no data rows yields none.
 
 `code` splits source on top-level declarations, keeping a doc comment or
 decorator with the declaration it documents. `-lang go` or `-lang python`
