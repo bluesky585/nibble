@@ -178,6 +178,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-dir` | | recursive directory (not with a file argument) |
 | `-ext` | `.txt,.md` | extensions for `-dir` |
 | `-lang` | | language for `-chunker code`: `go` or `python` (empty detects it) |
+| `-rules` | | JSON file with a rule hierarchy for `-chunker recursive` |
 | `-html` | | write an HTML page of the source colored by chunk |
 | `-embed` | `false` | add an `embedding` to each chunk in the JSON output |
 | `-query` | | search an `-index` file and print hits instead of chunking |
@@ -202,6 +203,18 @@ because a missing boundary only makes the token fallback do more work,
 while a wrong one would split a statement in half.
 
 `markdown` routes each region of a document to the chunker that fits it: fenced code blocks to `code`, GFM tables to `table`, everything else to `recursive`. Regions are disjoint and cover the whole input, so reconstruct still holds. A fenced block's info string names its language, so each block is cut with the rules for what it holds (`python` blocks by Python rules, `go` blocks by Go rules) rather than being parsed as the wrong one; `-lang` is rejected here, since the document supplies it. A code block is split with its fence lines removed and reattached to the boundary chunks, since the fence syntax is not part of the language inside; this can push a boundary chunk slightly over `-size`.
+
+`recursive` reads its rule hierarchy from defaults, from `[]recursive.Level` in code, or from a JSON file passed with `-rules` (`recursive.RulesFromJSON` parses the same shape in a request's `rules` field). One array element per level, coarsest first; `"token": true` hard-splits with the tokenizer, otherwise the level splits on its `"delimiters"`:
+
+```json
+[
+  {"delimiters": ["\n\n"], "attach": "prev"},
+  {"delimiters": ["。", ".", "!", "?"], "attach": "prev"},
+  {"token": true}
+]
+```
+
+`attach` is optional and only `"prev"` is accepted, because nibble always attaches a delimiter to the piece it ends. An empty array means the default hierarchy.
 
 `semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full. `semantic.SimilarityWindow(n)` widens that test from adjacent sentence pairs to the mean vectors of `n` sentences on each side of the cut point. A window of 2 or 3 smooths single-sentence wording jitter that would otherwise split an unchanged topic, at the cost of needing `n` sentences of context on both sides; points without it are not evaluated. Consecutive points that fall below the threshold are one boundary, cut at the deepest.
 
@@ -247,11 +260,12 @@ go run ./cmd/nibble-api -addr 127.0.0.1:8080
   "size": 512,
   "overlap": 0,
   "lang": "",
+  "rules": "",
   "embedder": "hashing"
 }
 ```
 
-Omitted fields use the same defaults as the CLI. `POST /v1/chunk` returns `{"chunks":[...]}`. `POST /v1/index` uses the same body and returns `{"count":N}`.
+Omitted fields use the same defaults as the CLI. `rules` holds the same JSON rule hierarchy as the `-rules` file, inline, and only applies to the `recursive` chunker. `POST /v1/chunk` returns `{"chunks":[...]}`. `POST /v1/index` uses the same body and returns `{"count":N}`.
 
 `POST /v1/search` body: `{"query":"cats","k":1,"embedder":"hashing"}`. `k` defaults to 5. Index and search must hit the same process.
 

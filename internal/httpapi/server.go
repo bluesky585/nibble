@@ -48,6 +48,7 @@ type chunkRequest struct {
 	Chunker   string `json:"chunker"`
 	Tokenizer string `json:"tokenizer"`
 	Lang      string `json:"lang"`
+	Rules     string `json:"rules"`
 	Size      int    `json:"size"`
 	Overlap   int    `json:"overlap"`
 	Embedder  string `json:"embedder"`
@@ -161,7 +162,7 @@ func prepare(w http.ResponseWriter, r *http.Request) ([]chunk.Chunk, embed.Embed
 		return nil, nil, http.StatusBadRequest, err
 	}
 
-	c, err := buildchunk.New(req.Chunker, req.Tokenizer, req.Lang, req.Size, req.Overlap, emb)
+	c, err := buildchunk.New(req.Chunker, req.Tokenizer, req.Lang, req.Rules, req.Size, req.Overlap, emb)
 	if err != nil {
 		return nil, nil, http.StatusBadRequest, err
 	}
