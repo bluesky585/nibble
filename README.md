@@ -154,8 +154,9 @@ finished part; retrieval is enough to try, not enough to deploy.
   linearly, so search is brute force over whatever the file holds. The
   store interface is where an approximate-nearest-neighbor backend
   would slot in if one ever earns its place.
-- `POST /v1/index` keeps vectors in process memory; they are gone when
-  the server exits.
+- `POST /v1/index` keeps vectors in process memory unless the server
+  was started with `-index`, in which case the index persists in a
+  SQLite file across restarts.
 - A query must use the same embedder that built the index; a mismatch is
   reported rather than scored.
 
@@ -257,12 +258,21 @@ nibble -query "how do cats sleep" -index docs.db -k 3
 go run ./cmd/nibble-api -addr 127.0.0.1:8080
 ```
 
+Without `-index`, indexed chunks live in process memory and are gone when
+the server exits. With `-index docs.db`, the index is backed by a SQLite
+file — created when missing, resumed by the next server started on the
+same path — so a restart keeps what the last process indexed:
+
+```bash
+go run ./cmd/nibble-api -addr 127.0.0.1:8080 -index docs.db
+```
+
 | Method | Path | Meaning |
 | --- | --- | --- |
 | `GET` | `/health` | liveness |
 | `POST` | `/v1/chunk` | chunk JSON body |
-| `POST` | `/v1/index` | chunk, embed, keep in process memory |
-| `POST` | `/v1/search` | search that memory index; `scoring` picks `dense` (default), `bm25`, or `hybrid` |
+| `POST` | `/v1/index` | chunk, embed, keep in the index (memory, or the `-index` file) |
+| `POST` | `/v1/search` | search that index; `scoring` picks `dense` (default), `bm25`, or `hybrid` |
 
 `POST /v1/chunk` body:
 
