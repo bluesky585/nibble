@@ -282,6 +282,15 @@ go build -o nibble ./cmd/nibble
 go build -o nibble-api ./cmd/nibble-api
 ```
 
+Benchmarks cover the core packages against a fixed corpus in
+`internal/corpus` (a few kilobytes each, with CJK, a table, and Go and
+Python sources mixed in). They are a manual baseline, not a CI gate —
+compare before and after a change on the same machine:
+
+```bash
+go test -run xxx -bench=. -benchmem ./pkg/... 
+```
+
 The `ts/` client is a second toolchain and needs Node 23.6.0+:
 
 ```bash
