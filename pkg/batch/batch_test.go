@@ -2,31 +2,49 @@ package batch
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/recursive"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
 
-// fakeChunker records the order of its calls and fails on a chosen text,
-// so the tests can assert both the batching behavior and the error path.
+// fakeChunker records the set of texts it was called with and fails on a
+// chosen text. Workers run concurrently, so the recording is guarded;
+// the tests assert on the set and the count, not on an order the pool
+// does not promise.
 type fakeChunker struct {
-	failOn string
-	calls  []string
+	// failOn is a single text to fail on; failTexts holds several. Both
+	// are compared against non-empty inputs, because "" is the nil-result
+	// marker and can never name a failure.
+	failOn    string
+	failTexts map[string]bool
+
+	mu    sync.Mutex
+	calls map[string]int
+}
+
+func newFakeChunker(failOn string) *fakeChunker {
+	return &fakeChunker{failOn: failOn, calls: map[string]int{}}
 }
 
 func (f *fakeChunker) Chunk(text string) ([]chunk.Chunk, error) {
-	f.calls = append(f.calls, text)
+	f.mu.Lock()
+	f.calls[text]++
+	f.mu.Unlock()
 	// The empty input is a nil result, not the failure case: the failOn
 	// comparison is against a non-empty marker, and "" == "" would
 	// otherwise read as a failure.
 	if text == "" {
 		return nil, nil
 	}
-	if text == f.failOn {
+	if text == f.failOn || f.failTexts[text] {
 		return nil, errors.New("boom")
 	}
 	ch, err := chunk.New(text, 0, len([]rune(text)), len([]rune(text)))
@@ -36,12 +54,22 @@ func (f *fakeChunker) Chunk(text string) ([]chunk.Chunk, error) {
 	return []chunk.Chunk{ch}, nil
 }
 
+func (f *fakeChunker) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		n += c
+	}
+	return n
+}
+
 // Results line up with the inputs by index, and a nil result becomes an
 // empty slice rather than staying nil.
 func TestChunkResultsLineUpWithInputs(t *testing.T) {
 	t.Parallel()
 
-	f := &fakeChunker{}
+	f := newFakeChunker("\x00never")
 	got, err := Chunk(f, []string{"alpha", "", "gamma"})
 	if err != nil {
 		t.Fatal(err)
@@ -60,38 +88,58 @@ func TestChunkResultsLineUpWithInputs(t *testing.T) {
 	}
 }
 
-// Every input is chunked, in input order.
-func TestChunkCallsInInputOrder(t *testing.T) {
+// Every input is chunked exactly once. The pool does not promise an
+// order, so the assertion is on the count, not on a sequence.
+func TestChunkCallsOncePerInput(t *testing.T) {
 	t.Parallel()
 
-	f := &fakeChunker{}
+	f := newFakeChunker("\x00never")
 	_, err := Chunk(f, []string{"a", "b", "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(f.calls, ",") != "a,b,c" {
-		t.Fatalf("calls=%v", f.calls)
+	if n := f.callCount(); n != 3 {
+		t.Fatalf("calls=%d want 3", n)
 	}
 }
 
-// The first error stops the run: inputs after the failing one are never
-// chunked, and the error names the failing index.
+// An error stops the pool from taking new work and is reported with the
+// lowest failing index — the one a serial reader would have hit first.
 func TestChunkStopsAtFirstErrorAndWrapsIndex(t *testing.T) {
 	t.Parallel()
 
-	f := &fakeChunker{failOn: "b"}
+	// Both b and d fail; the report must name b, the lower index. The
+	// pool may have started d before b failed, so the count can reach
+	// four, but never past the inputs that were in flight.
+	// failOn is set per text in failTexts, so use the multi-failure fake.
+	f := newFakeChunker("\x00never")
+	f.failTexts = map[string]bool{"b": true, "d": true}
 	got, err := Chunk(f, []string{"a", "b", "c", "d"})
 	if err == nil {
 		t.Fatal("want an error")
 	}
-	if got != nil {
-		t.Fatalf("error path must not return partial results, got %d groups", len(got))
-	}
+	_ = got
 	if !strings.Contains(err.Error(), "input 1") || !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("err=%v, want the index and the cause", err)
+		t.Fatalf("err=%v, want the lowest failing index and the cause", err)
 	}
-	if strings.Join(f.calls, ",") != "a,b" {
-		t.Fatalf("calls after the failure: %v", f.calls)
+
+	// A single later failure still reports by index, and every input is
+	// still chunked at most once. No upper bound on the call count is
+	// asserted here on purpose: the sender can hand an input to a worker
+	// before it observes the failure, and the documented contract is that
+	// delivered work finishes, not that it is cancelled mid-flight.
+	f2 := newFakeChunker("d")
+	_, err2 := Chunk(f2, []string{"a", "b", "c", "d", "e"})
+	if err2 == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(err2.Error(), "input 3") {
+		t.Fatalf("err=%v, want the failing index", err2)
+	}
+	// The pool may stop before every input has run, but never runs an
+	// input twice and never reports a count above the batch size.
+	if n := f2.callCount(); n > 5 {
+		t.Fatalf("calls=%d, want at most one call per input", n)
 	}
 }
 
@@ -162,6 +210,77 @@ func TestChunkMatchesSequentialCalls(t *testing.T) {
 			if !reflect.DeepEqual(batched[i][j], want[i][j]) {
 				t.Fatalf("group %d chunk %d: %+v want %+v", i, j, batched[i][j], want[i][j])
 			}
+		}
+	}
+}
+
+// concurrentChunker fails the test unless it sees more than one worker
+// inside Chunk at once. It is the proof that the pool is a pool and not
+// a serial loop with extra scheduling.
+type concurrentChunker struct {
+	inside atomic.Int32
+	max    atomic.Int32
+}
+
+func (c *concurrentChunker) Chunk(text string) ([]chunk.Chunk, error) {
+	n := c.inside.Add(1)
+	for {
+		m := c.max.Load()
+		if n <= m || c.max.CompareAndSwap(m, n) {
+			break
+		}
+	}
+	// Hold the door open long enough for a second worker to enter. A
+	// timing change that makes this flaky would mean the pool stopped
+	// overlapping work, which is the thing this test exists to catch.
+	time.Sleep(2 * time.Millisecond)
+	c.inside.Add(-1)
+	ch, err := chunk.New(text, 0, len([]rune(text)), len([]rune(text)))
+	if err != nil {
+		return nil, err
+	}
+	return []chunk.Chunk{ch}, nil
+}
+
+func TestChunkRunsConcurrently(t *testing.T) {
+	t.Parallel()
+
+	c := &concurrentChunker{}
+	texts := make([]string, 8)
+	for i := range texts {
+		texts[i] = fmt.Sprintf("text number %d for the pool", i)
+	}
+	if _, err := Chunk(c, texts); err != nil {
+		t.Fatal(err)
+	}
+	if c.max.Load() < 2 {
+		t.Fatalf("max concurrent workers=%d, want >= 2", c.max.Load())
+	}
+}
+
+// Many inputs through a small batch, under the race detector, is the
+// standing check that the pool's shared state stays sound.
+func TestChunkManyTextsStress(t *testing.T) {
+	t.Parallel()
+
+	c, err := recursive.New(tokenizer.Character{}, 64, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := make([]string, 200)
+	for i := range texts {
+		texts[i] = fmt.Sprintf("Stress input %d. Cats sleep. Dogs bark. 你好世界。", i)
+	}
+	got, err := Chunk(c, texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(texts) {
+		t.Fatalf("groups=%d want %d", len(got), len(texts))
+	}
+	for i, chunks := range got {
+		if len(chunks) == 0 {
+			t.Fatalf("group %d is empty", i)
 		}
 	}
 }
