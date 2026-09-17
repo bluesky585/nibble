@@ -172,7 +172,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-chunker` | `recursive` | `recursive`, `sentence`, `token`, `fast`, `table`, `code`, `markdown`, or `semantic` |
 | `-tokenizer` | `character` | `character`, `word`, or `tiktoken` (ignored by `fast`) |
 | `-size` | `512` | max tokens per chunk; **max bytes** for `fast` |
-| `-overlap` | `0` | token overlap; token chunker only |
+| `-overlap` | `0` | token overlap; `token` widens windows, `recursive` repeats the previous chunk's tail |
 | `-index` | | optional index file of chunk embeddings; `.db`/`.sqlite`/`.sqlite3` names a SQLite database, anything else JSONL |
 | `-embedder` | `hashing` | `hashing` or `openai` (used by `semantic` and `-index`) |
 | `-context` | `0` | neighbor tokens copied into `context` (0 disables) |
@@ -225,6 +225,8 @@ while a wrong one would split a statement in half.
 `attach` is optional and only `"prev"` is accepted, because nibble always attaches a delimiter to the piece it ends. An empty array means the default hierarchy.
 
 A chunk that would hold nothing but whitespace is never emitted: when a paragraph exactly fills the budget, its trailing blank-line separator would otherwise hard-split into a content-free chunk, which is pure retrieval noise. That separator is merged into the neighboring chunk instead — the previous one for a trailing blank, the next one for a run of blanks before the first content — so reconstruct still holds and the neighbor may exceed `-size` by the whitespace it absorbed.
+
+`recursive` also accepts `-overlap`: the next chunk repeats the last `-overlap` tokens of the previous chunk's tail in its own `text`, the way the `token` chunker widens a window, so a retrieval hit on either side of a cut can see across it. Each chunk is still a slice of the source with exact offsets and still ends at the boundary the rules chose; only its start moves back. With a positive overlap the chunks are no longer a concatenation of the input — that is the same guarantee `token` overlap already trades away — and a chunk may exceed `-size` by up to the overlap, since the repeated run rides on top of content that already filled the budget. A previous chunk shorter than the overlap is repeated whole.
 
 `semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full. `semantic.SimilarityWindow(n)` widens that test from adjacent sentence pairs to the mean vectors of `n` sentences on each side of the cut point. A window of 2 or 3 smooths single-sentence wording jitter that would otherwise split an unchanged topic, at the cost of needing `n` sentences of context on both sides; points without it are not evaluated. Consecutive points that fall below the threshold are one boundary, cut at the deepest.
 

@@ -13,16 +13,42 @@ import (
 )
 
 // Chunker packs delimiter pieces up to Size tokens. A piece that still
-// exceeds Size is split with the next Level.
+// exceeds Size is split with the next Level. Overlap repeats the tail
+// of each chunk at the head of the next, in Text itself, the way the
+// token chunker widens a window.
 type Chunker struct {
-	tok   tokenizer.Tokenizer
-	size  int
-	rules []Level
-	hard  tokenchunker.Chunker
+	tok     tokenizer.Tokenizer
+	size    int
+	rules   []Level
+	overlap int
+	hard    tokenchunker.Chunker
+}
+
+// An Option changes a Chunker from its defaults. New takes them last.
+type Option func(*Chunker) error
+
+// Overlap sets how many tokens of the previous chunk's tail the next
+// chunk repeats in its own Text. Zero, the default, leaves chunks
+// contiguous so joining them reconstructs the input; a positive overlap
+// breaks that guarantee the same way the token chunker's overlap does —
+// the repeated run is text the chunk does not own, but it is a slice of
+// the source, offsets stay exact, and the last chunk still ends at the
+// end of the input. It must be >= 0 and < size.
+func Overlap(n int) Option {
+	return func(c *Chunker) error {
+		if n < 0 {
+			return fmt.Errorf("overlap must be >= 0, got %d", n)
+		}
+		if n >= c.size {
+			return fmt.Errorf("overlap must be < size, got overlap=%d size=%d", n, c.size)
+		}
+		c.overlap = n
+		return nil
+	}
 }
 
 // New builds a Chunker. Empty rules use DefaultRules.
-func New(tok tokenizer.Tokenizer, size int, rules []Level) (Chunker, error) {
+func New(tok tokenizer.Tokenizer, size int, rules []Level, opts ...Option) (Chunker, error) {
 	if tok == nil {
 		return Chunker{}, fmt.Errorf("tokenizer is required")
 	}
@@ -43,7 +69,13 @@ func New(tok tokenizer.Tokenizer, size int, rules []Level) (Chunker, error) {
 	if err != nil {
 		return Chunker{}, err
 	}
-	return Chunker{tok: tok, size: size, rules: rules, hard: hard}, nil
+	c := Chunker{tok: tok, size: size, rules: rules, hard: hard}
+	for _, opt := range opts {
+		if err := opt(&c); err != nil {
+			return Chunker{}, err
+		}
+	}
+	return c, nil
 }
 
 // Chunk splits text using the rule stack.
@@ -52,7 +84,47 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mergeBlank(chunks), nil
+	chunks = mergeBlank(chunks)
+	// Overlap is applied last, on the final sequence, so the run each
+	// chunk repeats belongs to its actual neighbor and not to a chunk a
+	// merge later absorbed.
+	if c.overlap > 0 {
+		chunks = applyOverlap(chunks, c.tok, c.overlap)
+	}
+	return chunks, nil
+}
+
+// applyOverlap widens each chunk after the first to repeat the last n
+// tokens of the previous chunk's tail, taken from the source text the
+// offsets point at. Because token pieces concatenate to their text, the
+// run is the tail of the previous chunk's own text: it ends where the
+// next chunk began, and no token can straddle the two chunks. Start
+// moves back, the repeated text is prepended, and TokenCount grows by
+// the tokens in the repeated run as measured on its own — a recount
+// made on a different string than the chunker's pack-time tally, which
+// is the same gap checkBudget already documents.
+func applyOverlap(chunks []chunk.Chunk, tok tokenizer.Tokenizer, n int) []chunk.Chunk {
+	if len(chunks) == 0 {
+		return chunks
+	}
+	out := make([]chunk.Chunk, len(chunks))
+	copy(out, chunks)
+	for i := 1; i < len(out); i++ {
+		parts := tok.Split(out[i-1].Text)
+		if len(parts) == 0 {
+			continue
+		}
+		first := len(parts) - n
+		if first < 0 {
+			first = 0
+		}
+		repeat := tokenizer.Join(parts[first:])
+		runes := utf8.RuneCountInString(repeat)
+		out[i].Text = repeat + out[i].Text
+		out[i].Start -= runes
+		out[i].TokenCount += tok.Count(repeat)
+	}
+	return out
 }
 
 // mergeBlank absorbs chunks that hold only whitespace into a

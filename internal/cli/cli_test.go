@@ -257,16 +257,29 @@ func TestRunTokenOverlap(t *testing.T) {
 	}
 }
 
-func TestRunOverlapRejected(t *testing.T) {
+// Recursive accepts -overlap: the next chunk repeats the previous
+// chunk's tail in its own text, the way a token window widens.
+func TestRunRecursiveOverlap(t *testing.T) {
 	t.Parallel()
 
+	original := strings.Repeat("word ", 8)
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-chunker", "recursive", "-overlap", "1"}, strings.NewReader("hi"), &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("exit %d want 2 stderr=%s", code, stderr.String())
+	code := Run([]string{"-chunker", "recursive", "-size", "8", "-overlap", "2"}, strings.NewReader(original), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "overlap is only supported by the token chunker") {
-		t.Fatalf("stderr=%s", stderr.String())
+
+	var chunks []chunk.Chunk
+	if err := json.Unmarshal(stdout.Bytes(), &chunks); err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("chunks=%d, want several", len(chunks))
+	}
+	for i := 1; i < len(chunks); i++ {
+		if chunks[i].Start != chunks[i-1].End-2 {
+			t.Fatalf("chunk %d start=%d want %d", i, chunks[i].Start, chunks[i-1].End-2)
+		}
 	}
 }
 

@@ -225,3 +225,104 @@ func TestChunkNoDelimiterFallsThrough(t *testing.T) {
 		t.Fatalf("expected token fallback, got %+v", got)
 	}
 }
+
+// Overlap repeats the tail of the previous chunk at the head of the
+// next one, in Text itself, the way the token chunker widens a window.
+// Each chunk still ends at the boundary the rules chose; the next one
+// just starts n tokens earlier, so a retrieval hit on either side of a
+// cut can see across it.
+func TestChunkOverlap(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 8, nil, Overlap(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := strings.Repeat("word ", 8)
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) < 3 {
+		t.Fatalf("chunks=%d, want several to exercise the boundary", len(got))
+	}
+	// Every chunk after the first starts exactly 2 runes (2 character
+	// tokens) before the previous chunk ended.
+	for i := 1; i < len(got); i++ {
+		if got[i].Start != got[i-1].End-2 {
+			t.Fatalf("chunk %d start=%d, want %d", i, got[i].Start, got[i-1].End-2)
+		}
+		if !strings.HasPrefix(got[i].Text, original[got[i].Start:got[i-1].End]) {
+			t.Fatalf("chunk %d does not repeat the previous tail: %q", i, got[i].Text)
+		}
+	}
+	// The tail is source text and the end is unchanged, so every chunk
+	// must be a slice of the input and end where the rules put it.
+	for i, ch := range got {
+		if original[ch.Start:ch.End] != ch.Text {
+			t.Fatalf("chunk %d is not a slice of the input", i)
+		}
+	}
+	// The last chunk must end at the end of the input.
+	if last := got[len(got)-1]; last.End != len([]rune(original)) {
+		t.Fatalf("last end=%d want %d", last.End, len([]rune(original)))
+	}
+}
+
+// A negative overlap and one at or over the budget are build errors,
+// matching the token chunker's validation.
+func TestNewOverlapValidation(t *testing.T) {
+	t.Parallel()
+
+	if _, err := New(tokenizer.Character{}, 8, nil, Overlap(-1)); err == nil ||
+		!strings.Contains(err.Error(), "overlap must be >= 0") {
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := New(tokenizer.Character{}, 8, nil, Overlap(8)); err == nil ||
+		!strings.Contains(err.Error(), "overlap must be < size") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// Overlap zero is the shape every existing caller has: chunks remain
+// contiguous and reconstruct holds.
+func TestChunkOverlapZeroReconstructs(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 8, nil, Overlap(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := "One paragraph here.\n\nAnother paragraph follows it."
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+}
+
+// Overlap applies after blank merging: the chunk a blank was merged
+// into is the neighbor whose tail the next chunk repeats, and no
+// overlap reaches into a blank-only region twice.
+func TestChunkOverlapAfterBlankMerge(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(tokenizer.Character{}, 10, nil, Overlap(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := "First paragraph.\n\n\n\nSecond paragraph.\n\nThird."
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, ch := range got {
+		if original[ch.Start:ch.End] != ch.Text {
+			t.Fatalf("chunk %d is not a slice of the input: [%d,%d) %q",
+				i, ch.Start, ch.End, ch.Text)
+		}
+	}
+	if last := got[len(got)-1]; last.End != len([]rune(original)) {
+		t.Fatalf("last end=%d want %d", last.End, len([]rune(original)))
+	}
+}

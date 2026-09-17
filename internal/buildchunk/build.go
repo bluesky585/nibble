@@ -23,7 +23,9 @@ type Chunker interface {
 	Chunk(text string) ([]chunk.Chunk, error)
 }
 
-// New builds a chunker. overlap is valid only for the token chunker.
+// New builds a chunker. overlap widens token windows and, for the
+// recursive chunker, repeats the previous chunk's tail in the next
+// chunk's text; other chunkers reject it.
 // The tokenizer is ignored when chunkerName is "fast"; size is then a
 // byte budget, while chunk offsets remain runes.
 // "markdown" routes regions of a document to the code, table, and
@@ -50,12 +52,12 @@ func New(chunkerName, tokName, lang, rulesJSON string, size, overlap int, emb em
 
 	switch chunkerName {
 	case "recursive":
-		if overlap != 0 {
-			return nil, fmt.Errorf("overlap is only supported by the token chunker")
-		}
 		rules, err := recursive.RulesFromJSONOr(rulesJSON, nil)
 		if err != nil {
 			return nil, err
+		}
+		if overlap != 0 {
+			return recursive.New(tok, size, rules, recursive.Overlap(overlap))
 		}
 		return recursive.New(tok, size, rules)
 	case "sentence":
