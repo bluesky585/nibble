@@ -70,3 +70,10 @@ func (s *JSONL) Upsert(records []Record) error {
 func (s *JSONL) Search(query []float64, k int) ([]Hit, error) {
 	return searchRecords(s.records, query, k)
 }
+
+// Records exposes the loaded records for scoring beyond cosine, such as
+// a sparse ranker that needs the texts. The slice is shared, not
+// copied: callers must not modify it.
+func (s *JSONL) Records() []Record {
+	return s.records
+}

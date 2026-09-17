@@ -183,6 +183,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-embed` | `false` | add an `embedding` to each chunk in the JSON output |
 | `-query` | | search an `-index` file and print hits instead of chunking |
 | `-k` | `5` | number of hits for `-query` |
+| `-scoring` | `dense` | `dense`, `bm25`, or `hybrid` (used by `-query`) |
+| `-hybrid-weight` | `0.5` | dense share of the blend when `-scoring hybrid` (0 to 1) |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
@@ -231,6 +233,8 @@ A chunk that would hold nothing but whitespace is never emitted: when a paragrap
 `-embed` puts the vector on each chunk in the JSON on stdout, so you can look at embeddings without writing an index. Every input in the run is embedded together in bounded batches, so a directory does not cost one request per file nor one unbounded request. With `-index` the vectors are reused rather than computed twice, and are stored once (on the record, not also on the chunk). A chunk's vector is computed from `context + text` where `context` is set, matching what `-index` stores.
 
 `-query` searches an existing index and prints the top `-k` hits as JSON, each with its score and the chunk it points at. It reads no input, so it never waits on stdin. Use the same `-embedder` that built the index: a query embedded by a different model has a different width, and that is reported as an error rather than scored as a meaningless ranking.
+
+`-scoring` picks how hits are ranked. `dense` is cosine over the stored vectors, the default and the only mode that needs the embedder. `bm25` ranks by term overlap over the index texts and needs no embedder at all — it works on an index built without vectors, and it is the better ranking when the query is a rare word the vector model dilutes. `hybrid` blends both: `weight * dense + (1-weight) * bm25`, with the BM25 side normalized to the index's own maximum first, since BM25 scores are unbounded and would otherwise swamp the blend. Scores across the three modes are not comparable — each is its own measure.
 
 ```bash
 nibble -index docs.jsonl docs.txt
