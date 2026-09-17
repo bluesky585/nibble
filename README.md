@@ -216,6 +216,8 @@ while a wrong one would split a statement in half.
 
 `attach` is optional and only `"prev"` is accepted, because nibble always attaches a delimiter to the piece it ends. An empty array means the default hierarchy.
 
+A chunk that would hold nothing but whitespace is never emitted: when a paragraph exactly fills the budget, its trailing blank-line separator would otherwise hard-split into a content-free chunk, which is pure retrieval noise. That separator is merged into the neighboring chunk instead — the previous one for a trailing blank, the next one for a run of blanks before the first content — so reconstruct still holds and the neighbor may exceed `-size` by the whitespace it absorbed.
+
 `semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full. `semantic.SimilarityWindow(n)` widens that test from adjacent sentence pairs to the mean vectors of `n` sentences on each side of the cut point. A window of 2 or 3 smooths single-sentence wording jitter that would otherwise split an unchanged topic, at the cost of needing `n` sentences of context on both sides; points without it are not evaluated. Consecutive points that fall below the threshold are one boundary, cut at the deepest.
 
 `sentence` and `semantic` cut a single sentence that is over budget on its own into token windows, so a long run without punctuation cannot push a chunk past `-size`. The only chunk that may still exceed `-size` is one holding a single token wider than the budget.
