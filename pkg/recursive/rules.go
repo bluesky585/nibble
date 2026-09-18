@@ -37,3 +37,20 @@ func DefaultRules() []Level {
 		{Token: true},
 	}
 }
+
+// FallbackRules returns the levels below a sentence: clauses, then
+// whitespace, then tokens. A chunker that has already split on sentences
+// uses them to give one over-budget sentence a second, finer cut — at
+// commas when the sentence has any — before landing on token windows.
+// Text without clause or whitespace delimiters walks straight to the
+// token level, which is exactly the hard split it would have taken
+// without this second attempt. The whitespace level covers line breaks,
+// which the sentence delimiters do not: a hard-wrapped sentence keeps
+// its newlines, and they are finer cut points than any token window.
+func FallbackRules() []Level {
+	return []Level{
+		{Delimiters: []string{"，", "；", ",", ";", ":"}, Attach: split.AttachPrev},
+		{Delimiters: []string{" ", "\t", "\n", "\r"}, Attach: split.AttachPrev},
+		{Token: true},
+	}
+}

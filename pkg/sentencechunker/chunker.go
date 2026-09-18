@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bluesky585/nibble/pkg/chunk"
+	"github.com/bluesky585/nibble/pkg/recursive"
 	"github.com/bluesky585/nibble/pkg/split"
 	"github.com/bluesky585/nibble/pkg/tokenchunker"
 	"github.com/bluesky585/nibble/pkg/tokenizer"
@@ -30,6 +31,12 @@ type Chunker struct {
 	// so it is opt-in per caller rather than a default.
 	minRunes int
 	hard     tokenchunker.Chunker
+	// fallback re-cuts one over-budget sentence at clause and whitespace
+	// delimiters before token windows are the only option left. It shares
+	// this chunker's tokenizer and size, so its windows obey the same
+	// budget. Built in New, where its construction cannot fail: the same
+	// size and tokenizer were just validated for hard.
+	fallback recursive.Chunker
 }
 
 // Option configures a Chunker beyond the required arguments.
@@ -51,7 +58,11 @@ func New(tok tokenizer.Tokenizer, size int, delims []string, opts ...Option) (Ch
 	if err != nil {
 		return Chunker{}, err
 	}
-	c := Chunker{tok: tok, size: size, delims: delims, hard: hard}
+	fallback, err := recursive.New(tok, size, recursive.FallbackRules())
+	if err != nil {
+		return Chunker{}, err
+	}
+	c := Chunker{tok: tok, size: size, delims: delims, hard: hard, fallback: fallback}
 	for _, opt := range opts {
 		if err := opt(&c); err != nil {
 			return Chunker{}, err
@@ -151,10 +162,14 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 	return out, nil
 }
 
-// hardSplit cuts one oversized sentence into token windows, shifting the
-// window offsets from the sentence into the document.
+// hardSplit cuts one oversized sentence, shifting the piece offsets from
+// the sentence into the document. The first attempt uses the fallback
+// chunker — clauses, then whitespace, then tokens — so a sentence with a
+// comma is cut at the comma instead of mid-word; only a sentence with no
+// finer delimiter reaches the token windows unchanged. The token windows
+// stay reachable through the fallback's own token level.
 func (c Chunker) hardSplit(p split.Piece) ([]chunk.Chunk, error) {
-	chunks, err := c.hard.Chunk(p.Text)
+	chunks, err := c.fallback.Chunk(p.Text)
 	if err != nil {
 		return nil, err
 	}

@@ -236,7 +236,7 @@ A chunk that would hold nothing but whitespace is never emitted: when a paragrap
 
 `semantic` embeds sentences and starts a new chunk when cosine similarity drops below 0.5 or the token budget is full. `semantic.SimilarityWindow(n)` widens that test from adjacent sentence pairs to the mean vectors of `n` sentences on each side of the cut point. A window of 2 or 3 smooths single-sentence wording jitter that would otherwise split an unchanged topic, at the cost of needing `n` sentences of context on both sides; points without it are not evaluated. Consecutive points that fall below the threshold are one boundary, cut at the deepest.
 
-`sentence` and `semantic` cut a single sentence that is over budget on its own into token windows, so a long run without punctuation cannot push a chunk past `-size`. The only chunk that may still exceed `-size` is one holding a single token wider than the budget.
+`sentence` and `semantic` give a single sentence that is over budget on its own a second, finer cut — clauses (commas), then whitespace, then token windows — so a long sentence is divided at its commas where it has them, and a run without any punctuation still cannot push a chunk past `-size`. A window that absorbs edge whitespace may exceed `-size` by that whitespace, the same bounded overflow `recursive` documents for a merged blank. The only chunk that may still exceed `-size` by more is one holding a single token wider than the budget.
 
 `-embedder hashing` is local and needs no network. `-embedder openai` calls an OpenAI-compatible `/v1/embeddings` API (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`). One HTTP request per batch.
 

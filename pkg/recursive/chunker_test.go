@@ -326,3 +326,85 @@ func TestChunkOverlapAfterBlankMerge(t *testing.T) {
 		t.Fatalf("last end=%d want %d", last.End, len([]rune(original)))
 	}
 }
+
+// FallbackRules is the below-sentence hierarchy the sentence and
+// semantic chunkers use to re-cut one over-budget sentence. On a text
+// with clauses it cuts at the clause; on a text with none it lands on
+// the token level, which is the hard split a chunker without this
+// second attempt would have taken directly.
+func TestChunkFallbackRules(t *testing.T) {
+	t.Parallel()
+
+	tok := tokenizer.Word{}
+	c, err := New(tok, 2, FallbackRules())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := "alpha, beta, gamma"
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	// The cut at size 2 cannot fit "alpha, beta," whole, so the clause
+	// delimiter is where the windows break instead of a mid-word seam.
+	texts := make([]string, len(got))
+	for i, ch := range got {
+		texts[i] = ch.Text
+	}
+	joined := strings.Join(texts, "")
+	if joined != original {
+		t.Fatalf("chunks do not reconstruct: %q", joined)
+	}
+	if len(got) < 2 {
+		t.Fatalf("expected several chunks, got %+v", got)
+	}
+
+	// No clause, no space: the token level is the only level left. The
+	// character ruler gives every rune its own token, so size 1 means
+	// one rune per window.
+	c1, err := New(tokenizer.Character{}, 1, FallbackRules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	original1 := "abcdefgh"
+	got1, err := c1.Chunk(original1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original1, got1)
+	if len(got1) != 8 {
+		t.Fatalf("token fallback len=%d want 8, got %+v", len(got1), got1)
+	}
+}
+
+// The whitespace level of FallbackRules covers line breaks, which the
+// sentence delimiters above it do not: a hard-wrapped over-budget
+// sentence is cut at its newlines before token windows are tried.
+func TestChunkFallbackRulesLineBreaks(t *testing.T) {
+	t.Parallel()
+
+	tok := tokenizer.Word{}
+	c, err := New(tok, 1, FallbackRules())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := "one\ntwo\nthree"
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	for _, ch := range got {
+		if ch.TokenCount > 2 {
+			t.Fatalf("chunk %q has %d tokens, over size 1 plus its edge breaks", ch.Text, ch.TokenCount)
+		}
+	}
+	// AttachPrev keeps each line break on the line before it, so the
+	// break rides at a chunk edge rather than starting one.
+	if got[0].Text != "one\n" {
+		t.Fatalf("first chunk=%q, want the first line with its break", got[0].Text)
+	}
+}
