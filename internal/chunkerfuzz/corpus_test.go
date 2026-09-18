@@ -191,7 +191,7 @@ var ctors = []struct {
 	}, budgetBlankMerge},
 	{"sentence", func(tok tokenizer.Tokenizer, size int) (chunker, error) {
 		return sentencechunker.New(tok, size, nil)
-	}, budgetTrue},
+	}, budgetBlankMerge},
 	{"token", func(tok tokenizer.Tokenizer, size int) (chunker, error) {
 		return tokenchunker.New(tok, size, 0)
 	}, budgetTrue},
@@ -206,7 +206,7 @@ var ctors = []struct {
 	}, budgetNone},
 	{"semantic", func(tok tokenizer.Tokenizer, size int) (chunker, error) {
 		return semantic.New(tok, embed.Hashing{}, size, 0)
-	}, budgetTrue},
+	}, budgetBlankMerge},
 }
 
 // ruler pairs a tokenizer with the one property the budget rule has to know

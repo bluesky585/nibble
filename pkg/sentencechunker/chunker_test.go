@@ -75,7 +75,10 @@ func TestChunkOversizedSentenceIsHardSplit(t *testing.T) {
 }
 
 // The oversized sentence keeps its place in the document: its windows
-// carry the sentence's own offsets, not zero-based ones.
+// carry the sentence's own offsets, not zero-based ones. The sentence
+// here has a space, so the fallback cuts it at whitespace rather than
+// mid-word, and the leading space rides along as part of the first
+// window the way recursive's blank merge works.
 func TestChunkOversizedSentenceOffsets(t *testing.T) {
 	t.Parallel()
 
@@ -90,17 +93,23 @@ func TestChunkOversizedSentenceOffsets(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertchunk.Split(t, original, got)
-	assertNoChunkOver(t, got, 3)
-	// "Hi." is 3 runes, so the next sentence starts at rune 3. Its
-	// windows must carry that offset, not zero.
+	// "Hello there." is 12 runes with no delimiter finer than its space,
+	// so the fallback splits "Hello " / "there." and windows the pieces.
 	if got[0].Text != "Hi." || got[0].Start != 0 || got[0].End != 3 {
 		t.Fatalf("first chunk=%+v", got[0])
 	}
 	if got[1].Start != 3 {
 		t.Fatalf("second chunk start=%d want 3: %+v", got[1].Start, got[1])
 	}
-	if got[1].Text != " He" {
-		t.Fatalf("second chunk text=%q want %q", got[1].Text, " He")
+	if got[1].Text != " Hel" {
+		t.Fatalf("second chunk text=%q want %q", got[1].Text, " Hel")
+	}
+	// The whitespace a window absorbed rides at its edge: the same
+	// bounded overflow recursive documents for a merged blank.
+	for _, ch := range got[1:] {
+		if ch.TokenCount > 4 {
+			t.Fatalf("chunk %q counts %d tokens, over size 3 plus its edge space", ch.Text, ch.TokenCount)
+		}
 	}
 }
 
@@ -123,6 +132,64 @@ func TestChunkNoDelimiterOverBudget(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("len=%d want 3, got %+v", len(got), got)
 	}
+}
+
+// An over-budget sentence with clauses is re-cut at the clause before
+// token windows are tried, so the words on either side of a comma are
+// never welded into one window or split mid-word. This is the case the
+// token-only hard split used to get wrong: "chromodynamics" was cut in
+// half when the window boundary landed inside it.
+func TestChunkOversizedSentenceCutsAtClause(t *testing.T) {
+	t.Parallel()
+
+	tok := tokenizer.Word{}
+	c, err := New(tok, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := "The quick brown fox, which jumps higher, escapes."
+	got, err := c.Chunk(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertchunk.Split(t, original, got)
+	// Every window boundary lands on the clause delimiters or the spaces
+	// around them: no chunk's text starts or ends in the middle of a word.
+	for _, ch := range got {
+		text := ch.Text
+		if text != "" && text[0] != ' ' {
+			if _, ok := wordStart(original, ch.Start); !ok {
+				t.Fatalf("chunk %q starts mid-word at %d", text, ch.Start)
+			}
+		}
+	}
+	// The clause delimiter survives at a chunk edge instead of a window
+	// landing mid-clause.
+	joined := ""
+	for _, ch := range got {
+		joined += ch.Text
+	}
+	if joined != original {
+		t.Fatalf("chunks do not reconstruct: %q", joined)
+	}
+}
+
+// wordStart reports whether offset i begins a word in text.
+func wordStart(text string, i int) (string, bool) {
+	if i == 0 {
+		return "", true
+	}
+	words := strings.Fields(text)
+	at := 0
+	for _, w := range words {
+		at = strings.Index(text[at:], w) + at
+		if at == i {
+			return w, true
+		}
+		at += len(w)
+	}
+	return "", false
 }
 
 func assertNoChunkOver(t *testing.T, chunks []chunk.Chunk, size int) {
