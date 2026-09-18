@@ -85,6 +85,11 @@ of them can stand in for `recursive` above:
 | `markdownchunker` | `New(tok, size)` | routes each region to the chunker that fits it |
 | `semantic` | `New(tok, emb, size, minSim, opts...)` | cosine similarity drops between sentences |
 
+Runnable programs live in [`examples/`](examples/) — one small `main` per
+idea (recursive basics, a real token budget, markdown routing, semantic
+cuts, context copies, an index lifecycle), each run directly with
+`go run ./examples/<name>`.
+
 `nil` rules and delims mean the package defaults. `tokenizer.Character{}`,
 `tokenizer.Word{}`, and `tokenizer/tiktoken.New("cl100k_base")` are the three
 tokenizers. The sentence-based chunkers take one extra option:
@@ -335,7 +340,7 @@ The `ts/` client is a second toolchain and needs Node 23.6.0+:
 cd ts && npm ci && npm run typecheck && npm test
 ```
 
-CI runs both: `gofmt` and `go test ./...` for Go, and the type check and tests
+CI runs both: `gofmt`, `go test ./...`, and `go build ./examples/...` for Go, and the type check and tests
 for the client.
 
 ## License

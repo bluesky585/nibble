@@ -17,6 +17,10 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: go test
         run: go test ./...
+      # The examples are documentation that happens to compile: build
+      # them so a broken snippet cannot merge.
+      - name: go build examples
+        run: go build ./examples/...
 
   # The TypeScript client in ts/ is a separate toolchain for a separate
   # consumer. It is a thin client, so there is little of it, but it still has
