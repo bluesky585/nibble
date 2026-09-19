@@ -21,7 +21,7 @@ type Chunk struct {
 	Context string `json:"context,omitempty"`
 	// Embedding is the vector for this chunk, filled in only when asked
 	// for. It is not part of reconstruct checks and is omitted when unset.
-	Embedding []float64 `json:"embedding,omitempty"`
+	Embedding []float32 `json:"embedding,omitempty"`
 }
 
 // EmbedText is the text an embedder should see. Context is prefixed onto

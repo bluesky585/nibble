@@ -11,10 +11,10 @@ import (
 	"github.com/bluesky585/nibble/pkg/chunk"
 )
 
-func vec(n int, seed float64) []float64 {
-	v := make([]float64, n)
+func vec(n int, seed float64) []float32 {
+	v := make([]float32, n)
 	for i := range v {
-		v[i] = seed + float64(i)*0.1
+		v[i] = float32(seed + float64(i)*0.1)
 	}
 	return v
 }
@@ -118,9 +118,9 @@ func TestSQLiteMatchesJSONLRanking(t *testing.T) {
 	dims := 16
 	var records []Record
 	for i := range 30 {
-		v := make([]float64, dims)
+		v := make([]float32, dims)
 		for j := range v {
-			v[j] = rng.NormFloat64()
+			v[j] = float32(rng.NormFloat64())
 		}
 		records = append(records, rec(fmt.Sprintf("doc %d text", i), i*20, dims, 0))
 		// Overwrite the seeded vector with the random one.
@@ -146,9 +146,9 @@ func TestSQLiteMatchesJSONLRanking(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	query := make([]float64, dims)
+	query := make([]float32, dims)
 	for j := range query {
-		query[j] = rng.NormFloat64()
+		query[j] = float32(rng.NormFloat64())
 	}
 	a, err := js.Search(query, 5)
 	if err != nil {
@@ -202,8 +202,8 @@ func TestSQLiteRoundTrip(t *testing.T) {
 	// Vectors are stored as float32: a value that survives that cast
 	// must come back equal to it.
 	for i, v := range got.Vector {
-		if v != float64(float32(vec(4, 0.5)[i])) {
-			t.Fatalf("vector[%d]=%v want the float32-rounded %v", i, v, float32(vec(4, 0.5)[i]))
+		if v != vec(4, 0.5)[i] {
+			t.Fatalf("vector[%d]=%v want %v", i, v, vec(4, 0.5)[i])
 		}
 	}
 }

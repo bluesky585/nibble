@@ -16,9 +16,9 @@ func TestHashingSimilarWording(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Cosine(vecs[0], vecs[1]) < Cosine(vecs[0], vecs[2]) {
+	if Cosine32(vecs[0], vecs[1]) < Cosine32(vecs[0], vecs[2]) {
 		t.Fatalf("overlapping words should be closer: %v %v %v",
-			Cosine(vecs[0], vecs[1]), Cosine(vecs[0], vecs[2]), vecs)
+			Cosine32(vecs[0], vecs[1]), Cosine32(vecs[0], vecs[2]), vecs)
 	}
 }
 

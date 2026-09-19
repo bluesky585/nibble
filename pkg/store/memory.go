@@ -14,7 +14,7 @@ func (m *Memory) Upsert(records []Record) error {
 }
 
 // Search returns the k nearest records by cosine similarity.
-func (m *Memory) Search(query []float64, k int) ([]Hit, error) {
+func (m *Memory) Search(query []float32, k int) ([]Hit, error) {
 	return searchRecords(m.records, query, k)
 }
 

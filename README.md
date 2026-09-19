@@ -243,7 +243,9 @@ A chunk that would hold nothing but whitespace is never emitted: when a paragrap
 
 `-embedder hashing` is local and needs no network. `-embedder openai` calls an OpenAI-compatible `/v1/embeddings` API (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`). One HTTP request per batch.
 
-`-index` writes chunks plus vectors from the selected embedder to an index file. The file's extension picks the store: `.db` (or `.sqlite`, `.sqlite3`) opens a SQLite database — one table, one row per chunk, keyed by text and offsets so a re-upserted chunk updates rather than duplicates, and vectors stored as float32 — while any other name writes JSONL. The two stores return the same ranking, so switching one for the other is a persistence choice, not a retrieval choice; the SQLite file is incremental (an upsert writes the rows it touched) and reopens across processes, where the JSONL store rewrites its file on every upsert.
+`-index` writes chunks plus vectors from the selected embedder to an index file. The file's extension picks the store: `.db` (or `.sqlite`, `.sqlite3`) opens a SQLite database — one table, one row per chunk, keyed by text and offsets so a re-upserted chunk updates rather than duplicates, and vectors stored as float32 — while any other name writes JSONL. The two stores return the same ranking, so switching one for the other is a persistence choice, not a retrieval choice; the SQLite file is incremental (an upsert writes the rows it touched) and reopens across processes, where the JSONL store rewrites its file on every upsert. Vectors are float32 end to end — the embedder returns them, the stores keep them, and scoring runs over them — so an index holds half the memory a float64 pipeline would and a search moves half the bytes.
+
+Search is a brute-force cosine scan, which is exact and needs no index build. It stays interactive through tens of thousands of chunks (a 10k-chunk index at 1536 dimensions answers in about 20 ms); past roughly a hundred thousand it is the millisecond-scale of disk, not the microsecond one of memory, and an external ANN backend would be the next lever.
 
 ```bash
 nibble -index docs.db docs.txt

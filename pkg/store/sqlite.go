@@ -22,11 +22,9 @@ import (
 // slow, the store interface is where an ANN backend would slot in; this
 // package does not grow one.
 //
-// Vectors are stored as float32. A float64 embedding rounded to float32
-// keeps its ranking in practice: the quantization error is orders of
-// magnitude below the gaps between similarity scores, and the file
-// halves in size. The score returned is computed from the stored
-// float32 vector, so a round trip reports the score of what it kept.
+// Vectors are stored and scored as float32 end to end: the blob keeps
+// the raw float32 bits, and the score is computed from the same bytes
+// on the way out, so a round trip reports the score of what it kept.
 //
 // The driver is imported for its registration only; every use here goes
 // through database/sql.
@@ -180,7 +178,7 @@ func (s *SQLite) DeleteSource(src string) (int, error) {
 
 // Search returns the k nearest records by cosine similarity, computed
 // against the stored float32 vectors.
-func (s *SQLite) Search(query []float64, k int) ([]Hit, error) {
+func (s *SQLite) Search(query []float32, k int) ([]Hit, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("store is closed")
 	}
@@ -212,7 +210,7 @@ func (s *SQLite) Search(query []float64, k int) ([]Hit, error) {
 		ch.Context = context
 		hits = append(hits, Hit{
 			Record: Record{Chunk: ch, Vector: vec, Source: source},
-			Score:  embed.Cosine(query, vec),
+			Score:  embed.Cosine32(query, vec),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -280,14 +278,14 @@ func (s *SQLite) Close() error {
 	return err
 }
 
-// encodeVector packs a float64 vector as little-endian float32 bytes.
-func encodeVector(v []float64) ([]byte, error) {
+// encodeVector packs a float32 vector as little-endian bytes.
+func encodeVector(v []float32) ([]byte, error) {
 	if len(v) == 0 {
 		return nil, fmt.Errorf("empty vector")
 	}
 	out := make([]byte, 4*len(v))
 	for i, x := range v {
-		if math.IsNaN(x) || math.IsInf(x, 0) {
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
 			return nil, fmt.Errorf("vector[%d] is not finite", i)
 		}
 		u := math.Float32bits(float32(x))
@@ -300,14 +298,14 @@ func encodeVector(v []float64) ([]byte, error) {
 }
 
 // decodeVector unpacks what encodeVector wrote.
-func decodeVector(b []byte) ([]float64, error) {
+func decodeVector(b []byte) ([]float32, error) {
 	if len(b)%4 != 0 {
 		return nil, fmt.Errorf("sqlite: vector blob is %d bytes, not a multiple of 4", len(b))
 	}
-	out := make([]float64, len(b)/4)
+	out := make([]float32, len(b)/4)
 	for i := range out {
 		u := uint32(b[4*i]) | uint32(b[4*i+1])<<8 | uint32(b[4*i+2])<<16 | uint32(b[4*i+3])<<24
-		out[i] = float64(math.Float32frombits(u))
+		out[i] = math.Float32frombits(u)
 	}
 	return out, nil
 }

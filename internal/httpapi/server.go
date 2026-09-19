@@ -181,7 +181,7 @@ func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
 
 	// The scoring mode decides what a query is: dense and hybrid embed
 	// it, bm25 reads it as terms and needs no embedder at all.
-	var queryVec []float64
+	var queryVec []float32
 	if req.Scoring != store.RankBM25 {
 		emb, err := embed.Lookup(req.Embedder)
 		if err != nil {
