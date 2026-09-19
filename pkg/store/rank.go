@@ -44,6 +44,45 @@ func Records(st Store) ([]Record, error) {
 	}
 }
 
+// A Source is one origin an index holds chunks from, with how many
+// records carry it. Empty is the origin of records indexed without a
+// source.
+type Source struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// Sources lists the origins st holds, most records first. The Store
+// interface cannot expose it, for the same reason Records cannot.
+func Sources(st Store) ([]Source, error) {
+	switch src := st.(type) {
+	case *JSONL:
+		return src.Sources()
+	case *SQLite:
+		return src.Sources()
+	case *Memory:
+		return src.Sources()
+	default:
+		return nil, nil
+	}
+}
+
+// DeleteSource removes every record of src from st and reports how many
+// went. A source the index does not hold removes nothing and reports 0,
+// not an error — deleting to zero is the normal end of a re-index.
+func DeleteSource(st Store, src string) (int, error) {
+	switch s := st.(type) {
+	case *JSONL:
+		return s.DeleteSource(src)
+	case *SQLite:
+		return s.DeleteSource(src)
+	case *Memory:
+		return s.DeleteSource(src)
+	default:
+		return 0, nil
+	}
+}
+
 // RankScores scores every record in records against the query, by the
 // named mode. dense needs a query vector (the embedder's job); bm25 and
 // hybrid need the query text. The sparse side of a hybrid is normalized

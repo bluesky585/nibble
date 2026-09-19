@@ -9,10 +9,13 @@ import (
 	"github.com/bluesky585/nibble/pkg/embed"
 )
 
-// Record is a chunk plus its embedding.
+// Record is a chunk plus its embedding. Source names where the chunk
+// came from — a file path, a URL, a caller-chosen key — and is what
+// DeleteSource removes by. Empty on records indexed without one.
 type Record struct {
 	Chunk  chunk.Chunk `json:"chunk"`
 	Vector []float64   `json:"vector"`
+	Source string      `json:"source,omitempty"`
 }
 
 // Hit is a search result.
@@ -73,6 +76,11 @@ func Embed(emb embed.Embedder, chunks []chunk.Chunk) ([]chunk.Chunk, error) {
 // IndexEmbedded, so a chunk is embedded from the same text and batched the
 // same way, and there is one definition of what gets embedded.
 func Index(st Store, emb embed.Embedder, chunks []chunk.Chunk) error {
+	return IndexLabeled(st, emb, chunks, "")
+}
+
+// IndexLabeled is Index with every record labeled src as its origin.
+func IndexLabeled(st Store, emb embed.Embedder, chunks []chunk.Chunk, src string) error {
 	if st == nil {
 		return fmt.Errorf("store is required")
 	}
@@ -80,13 +88,19 @@ func Index(st Store, emb embed.Embedder, chunks []chunk.Chunk) error {
 	if err != nil {
 		return err
 	}
-	return IndexEmbedded(st, embedded)
+	return IndexEmbeddedLabeled(st, embedded, src)
 }
 
 // IndexEmbedded writes chunks that already carry an Embedding, so a
 // caller that ran Embed does not pay for a second batch. Every chunk
 // must have a vector.
 func IndexEmbedded(st Store, chunks []chunk.Chunk) error {
+	return IndexEmbeddedLabeled(st, chunks, "")
+}
+
+// IndexEmbeddedLabeled is IndexEmbedded with every record labeled src
+// as its origin.
+func IndexEmbeddedLabeled(st Store, chunks []chunk.Chunk, src string) error {
 	if st == nil {
 		return fmt.Errorf("store is required")
 	}
@@ -103,7 +117,7 @@ func IndexEmbedded(st Store, chunks []chunk.Chunk) error {
 		// own field, and duplicating it would double every JSONL line.
 		c := ch
 		c.Embedding = nil
-		records[i] = Record{Chunk: c, Vector: ch.Embedding}
+		records[i] = Record{Chunk: c, Vector: ch.Embedding, Source: src}
 	}
 	return st.Upsert(records)
 }

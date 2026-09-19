@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { NibbleClient, NibbleError } from "./client.ts";
+import type { Source } from "./client.ts";
 import type {
   Chunk,
   Chunker,
@@ -300,4 +301,45 @@ test("the option unions reject values the server does not accept", () => {
   assert.equal(badTokenizer, "emoji");
   assert.equal(badLanguage, "rust");
   assert.equal(badLang, "javascript");
+});
+
+test("listSources gets the index's origins", async () => {
+  const sources: Source[] = [
+    { name: "a.md", count: 2 },
+    { name: "b.md", count: 1 },
+  ];
+  const { fetch, calls } = recorder([json(200, { sources })]);
+
+  const client = new NibbleClient("http://nibble.test", { fetch });
+  const got = await client.listSources();
+
+  assert.deepEqual(got, sources);
+  assert.equal(call(calls).method, "GET");
+  assert.equal(call(calls).url, "http://nibble.test/v1/sources");
+  assert.equal(call(calls).body, undefined);
+});
+
+test("deleteSource removes one origin and reports the count", async () => {
+  const { fetch, calls } = recorder([json(200, { deleted: 2 })]);
+
+  const client = new NibbleClient("http://nibble.test", { fetch });
+  const deleted = await client.deleteSource("docs/a.md");
+
+  assert.equal(deleted, 2);
+  assert.equal(call(calls).method, "DELETE");
+  // The name is a path parameter, so a slash in it must survive.
+  assert.equal(call(calls).url, "http://nibble.test/v1/sources/docs%2Fa.md");
+});
+
+test("index sends the source when given", async () => {
+  const { fetch, calls } = recorder([json(200, { count: 1 })]);
+
+  const client = new NibbleClient("http://nibble.test", { fetch });
+  await client.index({ text: "a", source: "a.md", embedder: "hashing" });
+
+  assert.deepEqual(JSON.parse(call(calls).body ?? ""), {
+    text: "a",
+    source: "a.md",
+    embedder: "hashing",
+  });
 });

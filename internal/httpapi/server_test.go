@@ -12,6 +12,7 @@ import (
 	"github.com/bluesky585/nibble/internal/assertchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/embed"
+	"github.com/bluesky585/nibble/pkg/store"
 )
 
 func TestHealth(t *testing.T) {
@@ -463,5 +464,129 @@ func TestPersistentAPIBadPath(t *testing.T) {
 
 	if _, err := NewPersistent(""); err == nil {
 		t.Fatal("empty path accepted")
+	}
+}
+
+// A source labels where indexed chunks came from. It rides the index
+// request, shows up on the hits, lists with a count, and a delete
+// removes exactly that origin's chunks.
+func TestSourceLifecycle(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	h := api.Handler()
+
+	index := func(text, source string) {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{
+			"text": text, "chunker": "sentence", "size": 64, "source": source,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/index", bytes.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("index status %d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	index("cats sleep on mats.", "a.md")
+	index("dogs bark all night.", "a.md")
+	index("birds migrate in autumn.", "b.md")
+
+	// The list holds both origins with their counts.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sources", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sources status %d", rec.Code)
+	}
+	var srcs struct {
+		Sources []store.Source `json:"sources"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &srcs); err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs.Sources) != 2 || srcs.Sources[0].Name != "a.md" || srcs.Sources[0].Count != 2 {
+		t.Fatalf("sources=%+v", srcs.Sources)
+	}
+
+	// Deleting b.md removes one record; a.md survives.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/v1/sources/b.md", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status %d", rec.Code)
+	}
+	var del struct {
+		Deleted int `json:"deleted"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &del); err != nil {
+		t.Fatal(err)
+	}
+	if del.Deleted != 1 {
+		t.Fatalf("deleted=%d, want 1", del.Deleted)
+	}
+
+	// A second delete of the same source reports 0 rather than an error.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/v1/sources/b.md", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second delete status %d", rec.Code)
+	}
+
+	// The remaining index still searches, and the hit carries its source.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPost, "/v1/search", strings.NewReader(`{"query":"cats","k":5}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("search status %d", rec.Code)
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Hits) != 2 || resp.Hits[0].Record.Source != "a.md" {
+		t.Fatalf("hits=%+v", resp.Hits)
+	}
+}
+
+// An index request without a source labels its chunks with the empty
+// source, which lists and deletes like any other name.
+func TestSourceEmpty(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	h := api.Handler()
+	idx := httptest.NewRecorder()
+	h.ServeHTTP(idx, httptest.NewRequest(
+		http.MethodPost, "/v1/index",
+		strings.NewReader(`{"text":"cats sleep. dogs bark.","chunker":"sentence","size":64}`)))
+	if idx.Code != http.StatusOK {
+		t.Fatalf("index status %d", idx.Code)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sources", nil))
+	var srcs struct {
+		Sources []store.Source `json:"sources"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &srcs); err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs.Sources) != 1 || srcs.Sources[0].Name != "" || srcs.Sources[0].Count != 1 {
+		t.Fatalf("sources=%+v", srcs.Sources)
+	}
+}
+
+// An empty index lists an empty source set, not null.
+func TestSourcesEmptyIndex(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	New().Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sources", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"sources": []`) {
+		t.Fatalf("body=%s", rec.Body.String())
 	}
 }

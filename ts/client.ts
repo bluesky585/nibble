@@ -49,6 +49,14 @@ export interface Chunk {
 export interface IndexedChunk {
   chunk: Chunk;
   vector: number[];
+  /** Where this chunk came from, when indexed with a source. */
+  source?: string;
+}
+
+/** One origin an index holds chunks from, with how many carry it. */
+export interface Source {
+  name: string;
+  count: number;
 }
 
 /** One search result. */
@@ -114,6 +122,12 @@ export interface ChunkRequest {
    */
   overlap?: number;
   embedder?: Embedder;
+  /**
+   * Labels where these chunks came from, so `DELETE /v1/sources/{name}`
+   * can replace them later. Optional; an upserted chunk under a new
+   * source moves there.
+   */
+  source?: string;
 }
 
 /** The body of `POST /v1/search`. */
@@ -231,6 +245,23 @@ export class NibbleClient {
   async search(request: SearchRequest): Promise<Hit[]> {
     const body = await this.send<{ hits: Hit[] }>("POST", "/v1/search", request);
     return body.hits;
+  }
+
+  /** `GET /v1/sources`: list the origins the server's index holds, most records first. */
+  async listSources(): Promise<Source[]> {
+    const body = await this.send<{ sources: Source[] }>("GET", "/v1/sources");
+    return body.sources;
+  }
+
+  /**
+   * `DELETE /v1/sources/{name}`: remove every chunk of one origin from
+   * the server's index. A name the index does not hold deletes nothing
+   * and resolves to 0 — deleting to zero is the normal end of a
+   * re-index, not an error.
+   */
+  async deleteSource(name: string): Promise<number> {
+    const body = await this.send<{ deleted: number }>("DELETE", `/v1/sources/${encodeURIComponent(name)}`);
+    return body.deleted;
   }
 
   private async send<T>(method: string, path: string, payload?: unknown): Promise<T> {
