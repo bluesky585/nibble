@@ -255,3 +255,29 @@ func TestSQLiteUpsertMovesSource(t *testing.T) {
 		t.Fatalf("sources=%+v, want only new.md x1", srcs)
 	}
 }
+
+// FilterSource narrows a corpus to one origin, before scoring so k
+// counts filtered hits. The empty string is the origin of records
+// indexed without a source, and the input is left untouched.
+func TestFilterSource(t *testing.T) {
+	records := []Record{
+		sourceRec(t, "a", "a.md", 0),
+		sourceRec(t, "b", "", 1),
+		sourceRec(t, "c", "a.md", 2),
+	}
+
+	if got := FilterSource(records, "a.md"); len(got) != 2 {
+		t.Fatalf("a.md got %d records, want 2", len(got))
+	}
+	if got := FilterSource(records, ""); len(got) != 1 || got[0].Chunk.Text != "b" {
+		t.Fatalf("empty got %+v", got)
+	}
+	if got := FilterSource(records, "nope"); len(got) != 0 {
+		t.Fatalf("nope got %d records, want 0", len(got))
+	}
+
+	// The filter must not have reordered or rewritten the input.
+	if records[0].Chunk.Text != "a" || records[1].Chunk.Text != "b" {
+		t.Fatalf("input mutated: %+v", records)
+	}
+}

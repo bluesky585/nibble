@@ -73,7 +73,14 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "-query reads no input; drop -dir and the file argument")
 			return 2
 		}
-		return runQuery(*query, *indexPath, *scoringName, *hybridWeight, *topK, emb, stdout, stderr)
+		// Only a -source explicitly given on -query filters; the same
+		// flag labels an index run, so its presence there says nothing
+		// about the search.
+		var srcFilter *string
+		if fs.Lookup("source").Value.String() != "" {
+			srcFilter = sourceName
+		}
+		return runQuery(*query, *indexPath, *scoringName, *hybridWeight, *topK, srcFilter, emb, stdout, stderr)
 	}
 	// Catches `nibble -index x.jsonl -k 3` read as a search.
 	if *topK != 5 {

@@ -590,3 +590,69 @@ func TestSourcesEmptyIndex(t *testing.T) {
 		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
+
+// A search with "source" only sees that origin's records, and k counts
+// filtered hits. The field is a pointer on the wire: absent searches
+// everything, an empty string filters to the records indexed without a
+// source.
+func TestSearchSourceFilter(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	h := api.Handler()
+	index := func(text, source string) {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{
+			"text": text, "chunker": "sentence", "size": 64, "source": source,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/index", bytes.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("index status %d", rec.Code)
+		}
+	}
+	index("cats sleep on warm mats. cats purr loudly.", "a.md")
+	index("dogs bark all night long. dogs howl too.", "b.md")
+
+	search := func(body string) searchResponse {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/search", strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("search status %d body=%s", rec.Code, rec.Body.String())
+		}
+		var resp searchResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	// Filtered to a.md, every hit mentions cats.
+	got := search(`{"query":"cats","k":5,"source":"a.md"}`)
+	if len(got.Hits) == 0 {
+		t.Fatal("no hits for a.md")
+	}
+	for _, hit := range got.Hits {
+		if hit.Record.Source != "a.md" {
+			t.Fatalf("hit from %q leaked through the a.md filter", hit.Record.Source)
+		}
+	}
+
+	// The empty string filters to records indexed without a source —
+	// here, none — while an absent source searches everything.
+	if got := search(`{"query":"cats","k":5,"source":""}`); len(got.Hits) != 0 {
+		t.Fatalf("empty source got %d hits, want 0", len(got.Hits))
+	}
+	if got := search(`{"query":"cats","k":5}`); len(got.Hits) == 0 {
+		t.Fatal("absent source found nothing")
+	}
+
+	// An unknown source is empty, not an error.
+	if got := search(`{"query":"cats","k":5,"source":"nope"}`); len(got.Hits) != 0 {
+		t.Fatalf("nope got %d hits, want 0", len(got.Hits))
+	}
+}

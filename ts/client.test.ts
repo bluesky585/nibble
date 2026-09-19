@@ -343,3 +343,24 @@ test("index sends the source when given", async () => {
     embedder: "hashing",
   });
 });
+
+test("search sends the source filter only when given", async () => {
+  const { fetch, calls } = recorder([
+    json(200, { hits: [] }),
+    json(200, { hits: [] }),
+  ]);
+
+  const client = new NibbleClient("http://nibble.test", { fetch });
+  await client.search({ query: "cats", k: 3, source: "a.md" });
+
+  assert.deepEqual(JSON.parse(call(calls, 0).body ?? ""), {
+    query: "cats",
+    k: 3,
+    source: "a.md",
+  });
+
+  // A search without source omits the field entirely, so the server
+  // applies its search-everything default.
+  await client.search({ query: "cats" });
+  assert.deepEqual(JSON.parse(call(calls, 1).body ?? ""), { query: "cats" });
+});

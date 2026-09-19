@@ -143,6 +143,12 @@ export interface SearchRequest {
    * dense). The server defaults to 0.5. Ignored by the other modes.
    */
   hybrid_weight?: number;
+  /**
+   * Narrows the search to one origin when given. Absent searches
+   * everything; an empty string filters to the chunks indexed without
+   * a source.
+   */
+  source?: string;
 }
 
 /** Options for the client itself, not for a request. */
