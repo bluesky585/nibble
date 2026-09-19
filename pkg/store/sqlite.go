@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, registered under "sqlite"
 
@@ -53,17 +54,20 @@ CREATE TABLE IF NOT EXISTS records (
 `
 
 const sqliteUpsert = `
-INSERT INTO records (text, start, end, context, token_count, vector)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO records (text, start, end, context, token_count, source, vector)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (text, start, end) DO UPDATE SET
 	context = excluded.context,
 	token_count = excluded.token_count,
+	source = excluded.source,
 	vector = excluded.vector;
 `
 
 // OpenSQLite opens (or creates) the database at path and ensures the
 // schema exists. A missing file is created; an existing file keeps its
-// records.
+// records. A file written before the source column existed is widened
+// in place: every row it holds gets the empty source, which is what
+// those records mean.
 func OpenSQLite(path string) (*SQLite, error) {
 	if path == "" {
 		return nil, fmt.Errorf("path is required")
@@ -78,6 +82,17 @@ func OpenSQLite(path string) (*SQLite, error) {
 	if _, err := db.Exec(sqliteSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("sqlite: schema: %w", err)
+	}
+	// The primary key carries no source, so the same chunk upserted
+	// from a different source updates the row's source rather than
+	// duplicating it — a re-index under a new name replaces, not adds.
+	if _, err := db.Exec(`ALTER TABLE records ADD COLUMN source TEXT NOT NULL DEFAULT ''`); err != nil {
+		// A duplicate-column error means the file already has the column,
+		// which is the normal reopen path; anything else is real.
+		if !strings.Contains(err.Error(), "duplicate column") {
+			db.Close()
+			return nil, fmt.Errorf("sqlite: migrate source column: %w", err)
+		}
 	}
 	return &SQLite{db: db}, nil
 }
@@ -107,11 +122,60 @@ func (s *SQLite) Upsert(records []Record) error {
 			return fmt.Errorf("record %d: %w", i, err)
 		}
 		if _, err := stmt.Exec(rec.Chunk.Text, rec.Chunk.Start, rec.Chunk.End,
-			rec.Chunk.Context, rec.Chunk.TokenCount, blob); err != nil {
+			rec.Chunk.Context, rec.Chunk.TokenCount, rec.Source, blob); err != nil {
 			return fmt.Errorf("record %d: sqlite: %w", i, err)
 		}
 	}
 	return tx.Commit()
+}
+
+// Sources counts the records per origin, most records first, straight
+// from the column.
+func (s *SQLite) Sources() ([]Source, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("store is closed")
+	}
+	rows, err := s.db.Query(`SELECT source, COUNT(*) FROM records GROUP BY source`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Source
+	for rows.Next() {
+		var src Source
+		if err := rows.Scan(&src.Name, &src.Count); err != nil {
+			return nil, fmt.Errorf("sqlite: %w", err)
+		}
+		out = append(out, src)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: %w", err)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Count > out[j].Count
+	})
+	return out, nil
+}
+
+// DeleteSource removes every record of src and reports the count. The
+// affected rows go in one statement.
+func (s *SQLite) DeleteSource(src string) (int, error) {
+	if s == nil || s.db == nil {
+		return 0, fmt.Errorf("store is closed")
+	}
+	res, err := s.db.Exec(`DELETE FROM records WHERE source = ?`, src)
+	if err != nil {
+		return 0, fmt.Errorf("sqlite: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("sqlite: rows affected: %w", err)
+	}
+	return int(n), nil
 }
 
 // Search returns the k nearest records by cosine similarity, computed
@@ -123,7 +187,7 @@ func (s *SQLite) Search(query []float64, k int) ([]Hit, error) {
 	if k <= 0 {
 		return nil, fmt.Errorf("k must be > 0, got %d", k)
 	}
-	rows, err := s.db.Query(`SELECT text, start, end, context, token_count, vector FROM records`)
+	rows, err := s.db.Query(`SELECT text, start, end, context, token_count, source, vector FROM records`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: %w", err)
 	}
@@ -131,10 +195,10 @@ func (s *SQLite) Search(query []float64, k int) ([]Hit, error) {
 
 	var hits []Hit
 	for rows.Next() {
-		var text, context string
+		var text, context, source string
 		var start, end, tokenCount int
 		var blob []byte
-		if err := rows.Scan(&text, &start, &end, &context, &tokenCount, &blob); err != nil {
+		if err := rows.Scan(&text, &start, &end, &context, &tokenCount, &source, &blob); err != nil {
 			return nil, fmt.Errorf("sqlite: %w", err)
 		}
 		vec, err := decodeVector(blob)
@@ -147,7 +211,7 @@ func (s *SQLite) Search(query []float64, k int) ([]Hit, error) {
 		}
 		ch.Context = context
 		hits = append(hits, Hit{
-			Record: Record{Chunk: ch, Vector: vec},
+			Record: Record{Chunk: ch, Vector: vec, Source: source},
 			Score:  embed.Cosine(query, vec),
 		})
 	}
@@ -177,7 +241,7 @@ func (s *SQLite) Records() ([]Record, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("store is closed")
 	}
-	rows, err := s.db.Query(`SELECT text, start, end, context, token_count, vector FROM records ORDER BY start`)
+	rows, err := s.db.Query(`SELECT text, start, end, context, token_count, source, vector FROM records ORDER BY start`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: %w", err)
 	}
@@ -185,10 +249,10 @@ func (s *SQLite) Records() ([]Record, error) {
 
 	var records []Record
 	for rows.Next() {
-		var text, context string
+		var text, context, source string
 		var start, end, tokenCount int
 		var blob []byte
-		if err := rows.Scan(&text, &start, &end, &context, &tokenCount, &blob); err != nil {
+		if err := rows.Scan(&text, &start, &end, &context, &tokenCount, &source, &blob); err != nil {
 			return nil, fmt.Errorf("sqlite: %w", err)
 		}
 		vec, err := decodeVector(blob)
@@ -200,7 +264,7 @@ func (s *SQLite) Records() ([]Record, error) {
 			return nil, err
 		}
 		ch.Context = context
-		records = append(records, Record{Chunk: ch, Vector: vec})
+		records = append(records, Record{Chunk: ch, Vector: vec, Source: source})
 	}
 	return records, rows.Err()
 }

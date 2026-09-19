@@ -66,13 +66,16 @@ func Handler() http.Handler {
 	return New().Handler()
 }
 
-// Handler serves health, chunk, index, and search routes.
+// Handler serves health, chunk, index, search, and source-management
+// routes.
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /v1/chunk", chunkText)
 	mux.HandleFunc("POST /v1/index", a.indexText)
 	mux.HandleFunc("POST /v1/search", a.searchText)
+	mux.HandleFunc("GET /v1/sources", a.listSources)
+	mux.HandleFunc("DELETE /v1/sources/{name}", a.deleteSource)
 	return mux
 }
 
@@ -89,6 +92,9 @@ type chunkRequest struct {
 	Size      int    `json:"size"`
 	Overlap   int    `json:"overlap"`
 	Embedder  string `json:"embedder"`
+	// Source labels where these chunks came from, so they can be
+	// replaced later through DELETE /v1/sources/{name}. Optional.
+	Source string `json:"source"`
 }
 
 type chunkResponse struct {
@@ -116,7 +122,7 @@ type errorResponse struct {
 }
 
 func chunkText(w http.ResponseWriter, r *http.Request) {
-	chunks, _, status, err := prepare(w, r)
+	chunks, _, _, status, err := prepare(w, r)
 	if err != nil {
 		writeJSON(w, status, errorResponse{Error: err.Error()})
 		return
@@ -125,27 +131,27 @@ func chunkText(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) indexText(w http.ResponseWriter, r *http.Request) {
-	chunks, emb, status, err := prepare(w, r)
+	chunks, emb, req, status, err := prepare(w, r)
 	if err != nil {
 		writeJSON(w, status, errorResponse{Error: err.Error()})
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if err := a.index(emb, chunks); err != nil {
+	if err := a.index(emb, chunks, req.Source); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, indexResponse{Count: len(chunks)})
 }
 
-// index writes chunks to whichever store the API holds. The caller
-// holds a.mu.
-func (a *API) index(emb embed.Embedder, chunks []chunk.Chunk) error {
+// index writes chunks to whichever store the API holds, labeled src as
+// their origin. The caller holds a.mu.
+func (a *API) index(emb embed.Embedder, chunks []chunk.Chunk, src string) error {
 	if a.sql != nil {
-		return store.Index(a.sql, emb, chunks)
+		return store.IndexLabeled(a.sql, emb, chunks, src)
 	}
-	return store.Index(a.mem, emb, chunks)
+	return store.IndexLabeled(a.mem, emb, chunks, src)
 }
 
 func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
@@ -219,14 +225,68 @@ func (a *API) records() ([]store.Record, error) {
 	return a.mem.Records(), nil
 }
 
-func prepare(w http.ResponseWriter, r *http.Request) ([]chunk.Chunk, embed.Embedder, int, error) {
+// listSources reports the origins the index holds, most records first.
+func (a *API) listSources(w http.ResponseWriter, _ *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var (
+		srcs []store.Source
+		err  error
+	)
+	if a.sql != nil {
+		srcs, err = a.sql.Sources()
+	} else {
+		srcs, err = a.mem.Sources()
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	if srcs == nil {
+		srcs = []store.Source{}
+	}
+	writeJSON(w, http.StatusOK, sourcesResponse{Sources: srcs})
+}
+
+type sourcesResponse struct {
+	Sources []store.Source `json:"sources"`
+}
+
+type deleteSourceResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+// deleteSource removes one origin from the index. A name the index
+// does not hold deletes nothing and reports 0 — deleting to zero is
+// the normal end of a re-index, not an error.
+func (a *API) deleteSource(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var (
+		n   int
+		err error
+	)
+	if a.sql != nil {
+		n, err = a.sql.DeleteSource(name)
+	} else {
+		n, err = a.mem.DeleteSource(name)
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, deleteSourceResponse{Deleted: n})
+}
+
+func prepare(w http.ResponseWriter, r *http.Request) ([]chunk.Chunk, embed.Embedder, chunkRequest, int, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 
 	var req chunkRequest
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		return nil, nil, http.StatusBadRequest, err
+		return nil, nil, req, http.StatusBadRequest, err
 	}
 
 	if req.Chunker == "" {
@@ -241,22 +301,22 @@ func prepare(w http.ResponseWriter, r *http.Request) ([]chunk.Chunk, embed.Embed
 
 	emb, err := embed.Lookup(req.Embedder)
 	if err != nil {
-		return nil, nil, http.StatusBadRequest, err
+		return nil, nil, req, http.StatusBadRequest, err
 	}
 
 	c, err := buildchunk.New(req.Chunker, req.Tokenizer, req.Lang, req.Rules, req.Size, req.Overlap, emb)
 	if err != nil {
-		return nil, nil, http.StatusBadRequest, err
+		return nil, nil, req, http.StatusBadRequest, err
 	}
 
 	chunks, err := c.Chunk(req.Text)
 	if err != nil {
-		return nil, nil, http.StatusInternalServerError, err
+		return nil, nil, req, http.StatusInternalServerError, err
 	}
 	if chunks == nil {
 		chunks = []chunk.Chunk{}
 	}
-	return chunks, emb, 0, nil
+	return chunks, emb, req, 0, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

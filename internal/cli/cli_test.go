@@ -644,3 +644,84 @@ func TestRunContextAcceptsEveryTokenizer(t *testing.T) {
 		}
 	}
 }
+
+// A -source on -index labels every chunk with that origin. -list-sources
+// prints the labels with counts, and -delete-source removes exactly one
+// origin and reports how many records went.
+func TestRunSourceLifecycle(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	run := func(args ...string) (string, int) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		code := Run(args, strings.NewReader(""), &stdout, &stderr)
+		return stdout.String(), code
+	}
+
+	// Index two texts, one under each source; the text rides stdin.
+	for _, tc := range []struct{ text, src string }{
+		{"cats sleep on mats.", "a.md"},
+		{"dogs bark all night.", "a.md"},
+		{"birds migrate in autumn.", "b.md"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"-chunker", "sentence", "-size", "64", "-index", path,
+			"-source", tc.src}, strings.NewReader(tc.text), &stdout, &stderr)
+		if code != 0 {
+			t.Fatalf("index %s: exit %d stderr=%s", tc.src, code, stderr.String())
+		}
+	}
+
+	out, code := run("-list-sources", "-index", path)
+	if code != 0 {
+		t.Fatalf("list: exit %d", code)
+	}
+	var srcs []store.Source
+	if err := json.Unmarshal([]byte(out), &srcs); err != nil {
+		t.Fatalf("list output %q: %v", out, err)
+	}
+	if len(srcs) != 2 || srcs[0].Name != "a.md" || srcs[0].Count != 2 {
+		t.Fatalf("sources=%+v", srcs)
+	}
+
+	out, code = run("-delete-source", "b.md", "-index", path)
+	if code != 0 {
+		t.Fatalf("delete: exit %d", code)
+	}
+	var del struct {
+		Deleted int `json:"deleted"`
+	}
+	if err := json.Unmarshal([]byte(out), &del); err != nil {
+		t.Fatalf("delete output %q: %v", out, err)
+	}
+	if del.Deleted != 1 {
+		t.Fatalf("deleted=%d, want 1", del.Deleted)
+	}
+
+	// The survivor is still searchable, and a second delete reports 0.
+	out, _ = run("-list-sources", "-index", path)
+	if !strings.Contains(out, `"name": "a.md"`) || strings.Contains(out, "b.md") {
+		t.Fatalf("sources after delete: %s", out)
+	}
+}
+
+// The two source-management flags reject being used together and both
+// require -index; neither reads input.
+func TestRunSourceFlagErrors(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	cases := [][]string{
+		{"-list-sources", "-delete-source", "x", "-index", path},
+		{"-list-sources"},
+		{"-delete-source", "x"},
+		{"-list-sources", "-dir", "."},
+	}
+	for _, args := range cases {
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, strings.NewReader(""), &stdout, &stderr); code != 2 {
+			t.Errorf("args %v: exit %d, want 2 (stderr=%s)", args, code, stderr.String())
+		}
+	}
+}

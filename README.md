@@ -193,6 +193,9 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-k` | `5` | number of hits for `-query` |
 | `-scoring` | `dense` | `dense`, `bm25`, or `hybrid` (used by `-query`) |
 | `-hybrid-weight` | `0.5` | dense share of the blend when `-scoring hybrid` (0 to 1) |
+| `-source` | | name the origin of the indexed chunks (with `-index`); an upserted chunk under a new source moves there |
+| `-list-sources` | `false` | print the sources an `-index` holds as JSON and exit |
+| `-delete-source` | | remove every chunk of this source from the `-index` and exit |
 
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
@@ -255,6 +258,18 @@ nibble -query "how do cats sleep" -index docs.db -k 3
 
 `-context` / `-context-mode` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. This is separate from `-overlap` (token windows).
 
+### Sources
+
+An index can hold chunks from many origins, and a `-source` name records where each batch came from — a file path, a URL, a caller-chosen key. It exists so a re-indexed document replaces its old chunks without rebuilding the whole index: chunks are keyed by their text and offsets, so the same chunk upserted under a new source moves there rather than duplicating.
+
+```bash
+nibble -chunker sentence -size 64 -index docs.db -source a.md a.md
+nibble -list-sources -index docs.db          # [{"name":"a.md","count":3},{"name":"b.md","count":1}]
+nibble -delete-source b.md -index docs.db    # {"deleted":1}
+```
+
+A source the index does not hold deletes nothing and reports 0 — deleting to zero is the normal end of a re-index, not an error. Chunks indexed without a `-source` carry the empty source, which lists and deletes like any other name. The same management exists over HTTP as `GET /v1/sources` and `DELETE /v1/sources/{name}`, and the records a search returns carry their `source`.
+
 `-html out.html` writes a self-contained page showing the source text colored by chunk, alongside a legend of offsets and token counts. It is a way to eyeball a split rather than count it. stdout is still the usual JSON. The page always reads exactly as the source, so it doubles as a check: overlapping chunks show their repeated part once and are flagged, text no chunk covers is hatched, and a chunk whose offsets disagree with the source is flagged rather than trusted.
 
 ## HTTP API
@@ -278,6 +293,8 @@ go run ./cmd/nibble-api -addr 127.0.0.1:8080 -index docs.db
 | `POST` | `/v1/chunk` | chunk JSON body |
 | `POST` | `/v1/index` | chunk, embed, keep in the index (memory, or the `-index` file) |
 | `POST` | `/v1/search` | search that index; `scoring` picks `dense` (default), `bm25`, or `hybrid` |
+| `GET` | `/v1/sources` | list the origins the index holds as `{"sources":[{"name":...,"count":...}]}`, most records first |
+| `DELETE` | `/v1/sources/{name}` | remove every chunk of that origin; returns `{"deleted":N}`, 0 for an unknown name |
 
 `POST /v1/chunk` body:
 
@@ -294,7 +311,7 @@ go run ./cmd/nibble-api -addr 127.0.0.1:8080 -index docs.db
 }
 ```
 
-Omitted fields use the same defaults as the CLI. `rules` holds the same JSON rule hierarchy as the `-rules` file, inline, and only applies to the `recursive` chunker. `POST /v1/chunk` returns `{"chunks":[...]}`. `POST /v1/index` uses the same body and returns `{"count":N}`.
+Omitted fields use the same defaults as the CLI. `rules` holds the same JSON rule hierarchy as the `-rules` file, inline, and only applies to the `recursive` chunker. `POST /v1/chunk` returns `{"chunks":[...]}`. `POST /v1/index` uses the same body and returns `{"count":N}`; its optional `source` labels the batch's origin, as the CLI's `-source` does.
 
 `POST /v1/search` body: `{"query":"cats","k":1,"embedder":"hashing"}`. `k` defaults to 5. Index and search must hit the same process. `scoring` picks the ranking, with the same meaning as the CLI's `-scoring`: `dense` (default) embeds the query and ranks by cosine, `bm25` ranks by term overlap and needs no embedder, and `hybrid` blends both with `hybrid_weight` as the dense share (default 0.5).
 

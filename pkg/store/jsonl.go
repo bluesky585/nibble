@@ -77,3 +77,40 @@ func (s *JSONL) Search(query []float64, k int) ([]Hit, error) {
 func (s *JSONL) Records() []Record {
 	return s.records
 }
+
+// Sources counts the records per origin, most records first.
+func (s *JSONL) Sources() ([]Source, error) {
+	return countSources(s.records), nil
+}
+
+// DeleteSource drops every record of src and rewrites the file once,
+// the way an upsert does. The survivors are compacted in place.
+func (s *JSONL) DeleteSource(src string) (int, error) {
+	kept := s.records[:0]
+	removed := 0
+	for _, rec := range s.records {
+		if rec.Source == src {
+			removed++
+			continue
+		}
+		kept = append(kept, rec)
+	}
+	s.records = kept
+	if removed == 0 {
+		return 0, nil
+	}
+
+	f, err := os.Create(s.path)
+	if err != nil {
+		return removed, err
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	for _, rec := range s.records {
+		if err := enc.Encode(rec); err != nil {
+			return removed, err
+		}
+	}
+	return removed, nil
+}

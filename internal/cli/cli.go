@@ -49,6 +49,12 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	topK := fs.Int("k", 5, "number of hits for -query")
 	scoringName := fs.String("scoring", "dense", "scoring for -query: dense, bm25, or hybrid")
 	hybridWeight := fs.Float64("hybrid-weight", 0.5, "dense share when -scoring hybrid (0 to 1)")
+	// Source management: a source names where an indexed chunk came
+	// from, so a re-indexed document can replace its old chunks without
+	// rebuilding the whole index.
+	sourceName := fs.String("source", "", "name the origin of the indexed chunks (with -index); an upserted chunk under a new source moves there")
+	listSources := fs.Bool("list-sources", false, "print the sources an -index holds as JSON and exit")
+	deleteSource := fs.String("delete-source", "", "remove every chunk of this source from the -index and exit")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -73,6 +79,33 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if *topK != 5 {
 		fmt.Fprintln(stderr, "-k is only used with -query")
 		return 2
+	}
+
+	// -list-sources and -delete-source manage an existing index. Like
+	// -query they read no input, so neither may wait on stdin.
+	if *listSources || *deleteSource != "" {
+		if *dirPath != "" || len(fs.Args()) > 0 {
+			fmt.Fprintln(stderr, "-list-sources and -delete-source read no input; drop -dir and the file argument")
+			return 2
+		}
+		if *listSources && *deleteSource != "" {
+			fmt.Fprintln(stderr, "use -list-sources or -delete-source, not both")
+			return 2
+		}
+		if *indexPath == "" {
+			fmt.Fprintln(stderr, "-index is required")
+			return 2
+		}
+		st, closeIndex, err := openIndex(*indexPath)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		defer closeIndex()
+		if *listSources {
+			return runListSources(st, stdout, stderr)
+		}
+		return runDeleteSource(st, *deleteSource, stdout, stderr)
 	}
 
 	if *dirPath != "" && len(fs.Args()) > 0 {
@@ -197,7 +230,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		err = indexChunks(st, emb, all, *embedInJSON)
+		err = indexChunks(st, emb, all, *embedInJSON, *sourceName)
 		if cerr := closeIndex(); err == nil {
 			err = cerr
 		}
@@ -231,13 +264,50 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// indexChunks writes chunks to st. When the chunks already carry
-// vectors from -embed they are reused, so no second batch is sent.
-func indexChunks(st store.Store, emb embed.Embedder, chunks []chunk.Chunk, preEmbedded bool) error {
+// indexChunks writes chunks to st, labeled with src as their origin
+// (empty means no source). When the chunks already carry vectors from
+// -embed they are reused, so no second batch is sent. The labeled
+// helpers keep the one definition of what gets embedded; the unlabeled
+// ones are src "" of the same call.
+func indexChunks(st store.Store, emb embed.Embedder, chunks []chunk.Chunk, preEmbedded bool, src string) error {
 	if preEmbedded {
-		return store.IndexEmbedded(st, chunks)
+		return store.IndexEmbeddedLabeled(st, chunks, src)
 	}
-	return store.Index(st, emb, chunks)
+	return store.IndexLabeled(st, emb, chunks, src)
+}
+
+// runListSources prints the sources an index holds as JSON.
+func runListSources(st store.Store, stdout, stderr io.Writer) int {
+	srcs, err := store.Sources(st)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(srcs); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+// runDeleteSource removes one source from the index and prints the
+// number of records that went.
+func runDeleteSource(st store.Store, src string, stdout, stderr io.Writer) int {
+	n, err := store.DeleteSource(st, src)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	enc := json.NewEncoder(stdout)
+	if err := enc.Encode(struct {
+		Deleted int `json:"deleted"`
+	}{n}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
 }
 
 // writeHTML renders docs to path. The JSON on stdout is unaffected.
