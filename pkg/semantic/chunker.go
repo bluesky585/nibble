@@ -159,7 +159,7 @@ func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
 			sim[i] = 2
 			continue
 		}
-		sim[i] = embed.Cosine(meanVec(vecs[lo:i]), meanVec(vecs[i:hi]))
+		sim[i] = embed.Cosine32(meanVec(vecs[lo:i]), meanVec(vecs[i:hi]))
 	}
 
 	// A real boundary dips below the threshold for a run of consecutive
@@ -266,14 +266,14 @@ func (c Chunker) hardSplit(p split.Piece) ([]chunk.Chunk, error) {
 
 // meanVec returns the component-wise mean of vectors. All vectors have
 // the same length because one embedder produced them.
-func meanVec(vs [][]float64) []float64 {
-	m := make([]float64, len(vs[0]))
+func meanVec(vs [][]float32) []float32 {
+	m := make([]float32, len(vs[0]))
 	for _, v := range vs {
 		for i := range v {
 			m[i] += v[i]
 		}
 	}
-	n := float64(len(vs))
+	n := float32(len(vs))
 	for i := range m {
 		m[i] /= n
 	}

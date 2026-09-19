@@ -61,7 +61,7 @@ type openaiRequest struct {
 type openaiResponse struct {
 	Data []struct {
 		Index     int       `json:"index"`
-		Embedding []float64 `json:"embedding"`
+		Embedding []float32 `json:"embedding"`
 	} `json:"data"`
 	Error *struct {
 		Message string `json:"message"`
@@ -69,7 +69,7 @@ type openaiResponse struct {
 }
 
 // Embed sends the whole batch in one HTTP request.
-func (o *OpenAI) Embed(texts []string) ([][]float64, error) {
+func (o *OpenAI) Embed(texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
@@ -111,7 +111,7 @@ func (o *OpenAI) Embed(texts []string) ([][]float64, error) {
 		return nil, fmt.Errorf("embeddings API returned %d vectors for %d inputs", len(parsed.Data), len(texts))
 	}
 
-	out := make([][]float64, len(texts))
+	out := make([][]float32, len(texts))
 	for _, item := range parsed.Data {
 		if item.Index < 0 || item.Index >= len(out) {
 			return nil, fmt.Errorf("embeddings API index %d out of range", item.Index)

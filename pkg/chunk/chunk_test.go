@@ -134,7 +134,7 @@ func TestChunkEmbeddingOmitted(t *testing.T) {
 		t.Fatalf("unset embedding should be omitted: %s", raw)
 	}
 
-	c.Embedding = []float64{0.5, 0.25}
+	c.Embedding = []float32{0.5, 0.25}
 	raw, err = json.Marshal(c)
 	if err != nil {
 		t.Fatal(err)

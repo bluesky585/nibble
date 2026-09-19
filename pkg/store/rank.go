@@ -2,7 +2,9 @@ package store
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
+	"sync"
 
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/embed"
@@ -95,7 +97,7 @@ func DeleteSource(st Store, src string) (int, error) {
 // error rather than a silent zero, since the caller has already decided
 // the embedder applies. Scores across modes are not comparable — each
 // mode is its own measure.
-func RankScores(records []Record, queryText string, queryVec []float64, mode string, weight float64) ([]float64, error) {
+func RankScores(records []Record, queryText string, queryVec []float32, mode string, weight float64) ([]float64, error) {
 	if !ValidScoring(mode) {
 		return nil, fmt.Errorf("unknown scoring %q: use dense, bm25, or hybrid", mode)
 	}
@@ -108,11 +110,7 @@ func RankScores(records []Record, queryText string, queryVec []float64, mode str
 
 	switch mode {
 	case RankDense:
-		out := make([]float64, len(records))
-		for i, rec := range records {
-			out[i] = embed.Cosine(queryVec, rec.Vector)
-		}
-		return out, nil
+		return scoreByCosine(records, queryVec), nil
 	case RankBM25:
 		return sparseScores(records, queryText), nil
 	default: // RankHybrid
@@ -122,10 +120,7 @@ func RankScores(records []Record, queryText string, queryVec []float64, mode str
 				len(queryVec), len(records[0].Vector),
 			)
 		}
-		dense := make([]float64, len(records))
-		for i, rec := range records {
-			dense[i] = embed.Cosine(queryVec, rec.Vector)
-		}
+		dense := scoreByCosine(records, queryVec)
 		sparse := sparseScores(records, queryText)
 		merged := make([]float64, len(records))
 		for i := range merged {
@@ -194,4 +189,59 @@ func FilterSource(records []Record, src string) []Record {
 		}
 	}
 	return kept
+}
+
+// scanWorkers caps the goroutines a parallel scan may use. One worker
+// per CPU is the shape of the work (independent dot products), but a
+// small corpus gains nothing from fan-out — the split cost dominates —
+// so scans below scanParallelMin run single-threaded.
+var scanWorkers = func() int { return runtime.GOMAXPROCS(0) }
+
+// scanParallelMin is the smallest corpus a scan splits across workers.
+// Below it the goroutine hand-off costs more than the loop saves.
+const scanParallelMin = 4096
+
+// scoreByCosine scores every record against the query vector with
+// Cosine32, splitting the corpus across workers when it is large
+// enough to pay for the split. Each worker writes its own score slot,
+// so there is no synchronization past the WaitGroup.
+func scoreByCosine(records []Record, query []float32) []float64 {
+	out := make([]float64, len(records))
+	q := query
+	workers := scanWorkers()
+	if len(records) < scanParallelMin || workers <= 1 {
+		for i := range records {
+			out[i] = embed.Cosine32(q, records[i].Vector)
+		}
+		return out
+	}
+	// Contiguous shards: each worker walks a range, no interleaving.
+	chunk := (len(records) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(records); start += chunk {
+		end := start + chunk
+		if end > len(records) {
+			end = len(records)
+		}
+		wg.Add(1)
+		go func(lo, hi int) {
+			defer wg.Done()
+			for i := lo; i < hi; i++ {
+				out[i] = embed.Cosine32(q, records[i].Vector)
+			}
+		}(start, end)
+	}
+	wg.Wait()
+	return out
+}
+
+// to32 quantizes a stored vector for scoring. A nil or empty vector
+// stays empty, which Cosine32 scores as 0 — the same answer Cosine
+// gives a mismatched pair.
+func to32(v []float64) []float32 {
+	out := make([]float32, len(v))
+	for i, x := range v {
+		out[i] = float32(x)
+	}
+	return out
 }

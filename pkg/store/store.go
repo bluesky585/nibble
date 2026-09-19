@@ -14,7 +14,7 @@ import (
 // DeleteSource removes by. Empty on records indexed without one.
 type Record struct {
 	Chunk  chunk.Chunk `json:"chunk"`
-	Vector []float64   `json:"vector"`
+	Vector []float32   `json:"vector"`
 	Source string      `json:"source,omitempty"`
 }
 
@@ -27,7 +27,7 @@ type Hit struct {
 // Store upserts records and runs brute-force cosine search.
 type Store interface {
 	Upsert(records []Record) error
-	Search(query []float64, k int) ([]Hit, error)
+	Search(query []float32, k int) ([]Hit, error)
 }
 
 // embedBatchSize caps how many texts go into one Embedder.Embed call. The
@@ -122,7 +122,7 @@ func IndexEmbeddedLabeled(st Store, chunks []chunk.Chunk, src string) error {
 	return st.Upsert(records)
 }
 
-func searchRecords(records []Record, query []float64, k int) ([]Hit, error) {
+func searchRecords(records []Record, query []float32, k int) ([]Hit, error) {
 	if k <= 0 {
 		return nil, fmt.Errorf("k must be > 0, got %d", k)
 	}
@@ -136,9 +136,10 @@ func searchRecords(records []Record, query []float64, k int) ([]Hit, error) {
 			len(query), len(records[0].Vector),
 		)
 	}
+	scores := scoreByCosine(records, query)
 	hits := make([]Hit, 0, len(records))
-	for _, rec := range records {
-		hits = append(hits, Hit{Record: rec, Score: embed.Cosine(query, rec.Vector)})
+	for i, rec := range records {
+		hits = append(hits, Hit{Record: rec, Score: scores[i]})
 	}
 	sort.Slice(hits, func(i, j int) bool {
 		if hits[i].Score == hits[j].Score {

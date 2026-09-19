@@ -31,10 +31,10 @@ func TestOpenAIEmbedBatch(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(openaiResponse{
 			Data: []struct {
 				Index     int       `json:"index"`
-				Embedding []float64 `json:"embedding"`
+				Embedding []float32 `json:"embedding"`
 			}{
-				{Index: 1, Embedding: []float64{0, 1}},
-				{Index: 0, Embedding: []float64{1, 0}},
+				{Index: 1, Embedding: []float32{0, 1}},
+				{Index: 0, Embedding: []float32{1, 0}},
 			},
 		})
 	}))

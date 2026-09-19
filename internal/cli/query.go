@@ -90,7 +90,7 @@ func filtered(st store.Store, src *string) ([]store.Record, error) {
 }
 
 // embedOne runs the embedder over the single query text.
-func embedOne(emb embed.Embedder, query string) ([]float64, error) {
+func embedOne(emb embed.Embedder, query string) ([]float32, error) {
 	vecs, err := emb.Embed([]string{query})
 	if err != nil {
 		return nil, err

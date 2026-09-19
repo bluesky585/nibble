@@ -212,12 +212,12 @@ type countingEmbedder struct {
 	sizes []int
 }
 
-func (e *countingEmbedder) Embed(texts []string) ([][]float64, error) {
+func (e *countingEmbedder) Embed(texts []string) ([][]float32, error) {
 	e.calls++
 	e.sizes = append(e.sizes, len(texts))
-	out := make([][]float64, len(texts))
+	out := make([][]float32, len(texts))
 	for i := range texts {
-		out[i] = []float64{float64(i)}
+		out[i] = []float32{float32(i)}
 	}
 	return out, nil
 }
@@ -261,8 +261,8 @@ func TestEmbedCountMismatch(t *testing.T) {
 
 type shortEmbedder struct{}
 
-func (shortEmbedder) Embed(texts []string) ([][]float64, error) {
-	return [][]float64{{0}}, nil
+func (shortEmbedder) Embed(texts []string) ([][]float32, error) {
+	return [][]float32{{0}}, nil
 }
 
 // A query from a different embedder has the wrong width. Cosine would
@@ -275,7 +275,7 @@ func TestSearchDimensionMismatch(t *testing.T) {
 	if err := Index(mem, embed.Hashing{}, []chunk.Chunk{mustChunk(t, "cats sleep", 0)}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := mem.Search([]float64{1, 2, 3}, 1)
+	_, err := mem.Search([]float32{1, 2, 3}, 1)
 	if err == nil || !strings.Contains(err.Error(), "dimensions") {
 		t.Fatalf("err=%v", err)
 	}
@@ -285,7 +285,7 @@ func TestSearchDimensionMismatch(t *testing.T) {
 func TestSearchEmptyStore(t *testing.T) {
 	t.Parallel()
 
-	hits, err := (&Memory{}).Search([]float64{1, 2, 3}, 1)
+	hits, err := (&Memory{}).Search([]float32{1, 2, 3}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestEmbedSplitsLargeRuns(t *testing.T) {
 	// misplaced batch or slot would show up as a wrong value here.
 	for i, c := range got {
 		inBatch := i % embedBatchSize
-		if len(c.Embedding) != 1 || c.Embedding[0] != float64(inBatch) {
+		if len(c.Embedding) != 1 || c.Embedding[0] != float32(inBatch) {
 			t.Fatalf("chunk %d embedding=%v want [%d]", i, c.Embedding, inBatch)
 		}
 		if c.Text != chunks[i].Text {

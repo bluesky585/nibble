@@ -13,11 +13,11 @@ const hashingDim = 64
 type Hashing struct{}
 
 // Embed returns one hashingDim vector per input. An empty string is zeros.
-func (Hashing) Embed(texts []string) ([][]float64, error) {
-	out := make([][]float64, len(texts))
+func (Hashing) Embed(texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
 	h := fnv.New32a()
 	for i, text := range texts {
-		v := make([]float64, hashingDim)
+		v := make([]float32, hashingDim)
 		for _, word := range strings.Fields(strings.ToLower(text)) {
 			h.Reset()
 			_, _ = h.Write([]byte(word))

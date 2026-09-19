@@ -67,7 +67,7 @@ func (s *JSONL) Upsert(records []Record) error {
 }
 
 // Search returns the k nearest records by cosine similarity.
-func (s *JSONL) Search(query []float64, k int) ([]Hit, error) {
+func (s *JSONL) Search(query []float32, k int) ([]Hit, error) {
 	return searchRecords(s.records, query, k)
 }
 
