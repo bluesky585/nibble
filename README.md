@@ -256,6 +256,8 @@ nibble -query "how do cats sleep" -index docs.db -k 3
 
 `-scoring` picks how hits are ranked. `dense` is cosine over the stored vectors, the default and the only mode that needs the embedder. `bm25` ranks by term overlap over the index texts and needs no embedder at all — it works on an index built without vectors, and it is the better ranking when the query is a rare word the vector model dilutes. `hybrid` blends both: `weight * dense + (1-weight) * bm25`, with the BM25 side normalized to the index's own maximum first, since BM25 scores are unbounded and would otherwise swamp the blend. Scores across the three modes are not comparable — each is its own measure.
 
+`-source` on `-query` narrows the search to one origin: the filter lands before scoring, so `-k` counts filtered hits. A query run without `-source` searches every origin. (The same flag labels an index run; there it names where chunks came from, see [Sources](#sources).)
+
 `-context` / `-context-mode` copy neighboring tokens into `context` without changing `text`, so reconstruct still holds. This is separate from `-overlap` (token windows).
 
 ### Sources
@@ -313,7 +315,7 @@ go run ./cmd/nibble-api -addr 127.0.0.1:8080 -index docs.db
 
 Omitted fields use the same defaults as the CLI. `rules` holds the same JSON rule hierarchy as the `-rules` file, inline, and only applies to the `recursive` chunker. `POST /v1/chunk` returns `{"chunks":[...]}`. `POST /v1/index` uses the same body and returns `{"count":N}`; its optional `source` labels the batch's origin, as the CLI's `-source` does.
 
-`POST /v1/search` body: `{"query":"cats","k":1,"embedder":"hashing"}`. `k` defaults to 5. Index and search must hit the same process. `scoring` picks the ranking, with the same meaning as the CLI's `-scoring`: `dense` (default) embeds the query and ranks by cosine, `bm25` ranks by term overlap and needs no embedder, and `hybrid` blends both with `hybrid_weight` as the dense share (default 0.5).
+`POST /v1/search` body: `{"query":"cats","k":1,"embedder":"hashing"}`. `k` defaults to 5. Index and search must hit the same process. `scoring` picks the ranking, with the same meaning as the CLI's `-scoring`: `dense` (default) embeds the query and ranks by cosine, `bm25` ranks by term overlap and needs no embedder, and `hybrid` blends both with `hybrid_weight` as the dense share (default 0.5). An optional `source` narrows the search to one origin the same way the CLI's `-source` does on `-query`: absent searches everything, an empty string filters to the records indexed without a source.
 
 ### Client
 

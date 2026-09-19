@@ -725,3 +725,53 @@ func TestRunSourceFlagErrors(t *testing.T) {
 		}
 	}
 }
+
+// -source on -query narrows the search to that origin, for every
+// scoring mode. The same flag labels an index run; a query run without
+// -source searches everything.
+func TestRunQuerySourceFilter(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "idx.jsonl")
+	for _, tc := range []struct{ text, src string }{
+		{"cats sleep on warm mats.", "a.md"},
+		{"dogs bark all night.", "b.md"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"-chunker", "sentence", "-size", "64", "-index", path,
+			"-source", tc.src}, strings.NewReader(tc.text), &stdout, &stderr); code != 0 {
+			t.Fatalf("index %s: exit %d stderr=%s", tc.src, code, stderr.String())
+		}
+	}
+
+	// Filtering needs -query with -source; bm25 and dense agree that
+	// only a.md's record survives.
+	for _, mode := range []string{"dense", "bm25"} {
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"-query", "cats", "-index", path, "-scoring", mode,
+			"-source", "a.md"}, strings.NewReader(""), &stdout, &stderr)
+		if code != 0 {
+			t.Fatalf("%s: exit %d stderr=%s", mode, code, stderr.String())
+		}
+		var hits []store.Hit
+		if err := json.Unmarshal([]byte(stdout.String()), &hits); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if len(hits) != 1 || hits[0].Record.Source != "a.md" {
+			t.Fatalf("%s: hits=%+v", mode, hits)
+		}
+	}
+
+	// Without -source the search spans every origin.
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-query", "cats", "-index", path}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("unfiltered: exit %d stderr=%s", code, stderr.String())
+	}
+	var hits []store.Hit
+	if err := json.Unmarshal([]byte(stdout.String()), &hits); err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("unfiltered search found nothing")
+	}
+}

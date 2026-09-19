@@ -111,6 +111,10 @@ type searchRequest struct {
 	Embedder     string  `json:"embedder"`
 	Scoring      string  `json:"scoring"`
 	HybridWeight float64 `json:"hybrid_weight"`
+	// Source narrows the search to one origin when given. A pointer
+	// separates "absent" from `"source": ""`: the latter filters to the
+	// records indexed without a source, the former searches everything.
+	Source *string `json:"source,omitempty"`
 }
 
 type searchResponse struct {
@@ -197,6 +201,9 @@ func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
 	// change the corpus under the scores.
 	a.mu.Lock()
 	records, err := a.records()
+	if err == nil && req.Source != nil {
+		records = store.FilterSource(records, *req.Source)
+	}
 	if err == nil {
 		var scores []float64
 		scores, err = store.RankScores(records, req.Query, queryVec, req.Scoring, req.HybridWeight)

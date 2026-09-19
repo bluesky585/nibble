@@ -178,3 +178,20 @@ func Rank(records []Record, scores []float64, k int) []Hit {
 	}
 	return hits[:k]
 }
+
+// FilterSource keeps only the records whose Source matches src. It is
+// the search-time half of source management: narrow the corpus before
+// scoring, so k counts filtered hits rather than being applied after
+// the fact. An empty src matches the records indexed without a source.
+func FilterSource(records []Record, src string) []Record {
+	// A fresh slice, not an in-place compaction: Records may share its
+	// backing array with the store itself, and overwriting it in place
+	// would corrupt the index the caller is only reading.
+	kept := make([]Record, 0, len(records))
+	for _, rec := range records {
+		if rec.Source == src {
+			kept = append(kept, rec)
+		}
+	}
+	return kept
+}
