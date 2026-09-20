@@ -37,6 +37,10 @@ func (Character) Decode(tokens []int) string {
 	return string(runes)
 }
 
+// IsRunes marks the character tokenizer's tokens as runes, for the
+// fast paths the Runes interface offers.
+func (Character) IsRunes() bool { return true }
+
 // Count returns the number of runes in text.
 func (Character) Count(text string) int {
 	return utf8.RuneCountInString(text)

@@ -165,7 +165,10 @@ func splitLines(text string) []line {
 	if text == "" {
 		return nil
 	}
-	var out []line
+	// One newline per line is the common shape, so the count is an
+	// exact capacity for text ending in \n and one under for a final
+	// line without one. Either way a single allocation, no growth.
+	out := make([]line, 0, strings.Count(text, "\n")+1)
 	startB, startR := 0, 0
 	b, r := 0, 0
 	for b < len(text) {
@@ -188,7 +191,12 @@ func splitLines(text string) []line {
 }
 
 func join(lines []line) string {
+	n := 0
+	for _, l := range lines {
+		n += len(l.Text)
+	}
 	var b strings.Builder
+	b.Grow(n)
 	for _, l := range lines {
 		b.WriteString(l.Text)
 	}
