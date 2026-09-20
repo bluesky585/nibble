@@ -281,3 +281,35 @@ func TestFilterSource(t *testing.T) {
 		t.Fatalf("input mutated: %+v", records)
 	}
 }
+
+// Records must read every store through the Store interface — it is
+// what the bm25 and hybrid rankings read their corpus from, so a
+// missing branch here silently ranks an empty corpus (#72).
+func TestRecordsThroughInterface(t *testing.T) {
+	t.Parallel()
+
+	jsPath := filepath.Join(t.TempDir(), "ri.jsonl")
+	sqPath := filepath.Join(t.TempDir(), "ri.db")
+	sts := map[string]func() (Store, error){
+		"memory": func() (Store, error) { return &Memory{}, nil },
+		"jsonl":  func() (Store, error) { return OpenJSONL(jsPath) },
+		"sqlite": func() (Store, error) { return OpenSQLite(sqPath) },
+	}
+
+	for name, open := range sts {
+		st, err := open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Upsert([]Record{sourceRec(t, "cats sleep", "a.md", 0)}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Records(st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Chunk.Text != "cats sleep" {
+			t.Fatalf("%s: Records through the interface returned %+v", name, got)
+		}
+	}
+}

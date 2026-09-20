@@ -41,6 +41,8 @@ func Records(st Store) ([]Record, error) {
 		return src.Records(), nil
 	case *SQLite:
 		return src.Records()
+	case *Memory:
+		return src.Records(), nil
 	default:
 		return nil, nil
 	}
