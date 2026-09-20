@@ -272,7 +272,7 @@ test("the option unions reject values the server does not accept", () => {
     "markdown",
     "semantic",
   ];
-  const tokenizers: Tokenizer[] = ["character", "word", "tiktoken"];
+  const tokenizers: Tokenizer[] = ["character", "word", "bigram", "tiktoken"];
   const embedders: Embedder[] = ["hashing", "openai"];
   const scorings: Scoring[] = ["dense", "bm25", "hybrid"];
   const languages: Language[] = ["go", "golang", "python", "python3", "python2", "py", ""];

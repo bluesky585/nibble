@@ -128,6 +128,8 @@ func NewTokenizer(name string) (tokenizer.Tokenizer, error) {
 		return tokenizer.Character{}, nil
 	case "word":
 		return tokenizer.Word{}, nil
+	case "bigram":
+		return tokenizer.Bigram{}, nil
 	case "tiktoken":
 		return tiktoken.New("")
 	default:

@@ -80,7 +80,7 @@ export type Chunker =
   | "semantic";
 
 /** The ruler `size` is measured in. `fast` ignores this. */
-export type Tokenizer = "character" | "word" | "tiktoken";
+export type Tokenizer = "character" | "word" | "bigram" | "tiktoken";
 
 /** The embedder used by `semantic` and by index/search. */
 export type Embedder = "hashing" | "openai";
