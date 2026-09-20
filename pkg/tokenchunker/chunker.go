@@ -37,6 +37,58 @@ func New(tok tokenizer.Tokenizer, size, overlap int) (Chunker, error) {
 
 // Chunk splits text into token windows.
 func (c Chunker) Chunk(text string) ([]chunk.Chunk, error) {
+	// A rune tokenizer's windows are plain substrings: measuring is a
+	// rune walk with no piece slice to build, and a window is text[
+	// lo:hi] rather than a join of single-rune strings. The result is
+	// identical to the general path below — same chunks, same offsets,
+	// same counts — without the per-rune string the general path makes
+	// the character tokenizer allocate and the join then throws away.
+	if rt, ok := c.tok.(tokenizer.Runes); ok && rt.IsRunes() {
+		return c.chunkRunes(text)
+	}
+	return c.chunkPieces(text)
+}
+
+// chunkRunes is Chunk for a tokenizer whose tokens are runes. Windows
+// start every step runes and span size runes — the same arithmetic the
+// general path runs over piece indexes — but a window here is a slice
+// of the original text, and finding its bounds is a rune walk with
+// nothing allocated per rune.
+func (c Chunker) chunkRunes(text string) ([]chunk.Chunk, error) {
+	step := c.size - c.overlap
+	// Rune starts in bytes: starts[i] is where rune i begins. The final
+	// entry is the byte length, the exclusive end of the last rune.
+	n := utf8.RuneCountInString(text)
+	starts := make([]int, 0, n+1)
+	for b := range text {
+		starts = append(starts, b)
+	}
+	starts = append(starts, len(text))
+
+	out := make([]chunk.Chunk, 0, (n+step-1)/step)
+	for lo := 0; lo < n; lo += step {
+		hi := lo + c.size
+		if hi > n {
+			hi = n
+		}
+		if starts[hi] > starts[lo] {
+			ch, err := chunk.New(text[starts[lo]:starts[hi]], lo, hi, hi-lo)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ch)
+		}
+		if hi == n {
+			break
+		}
+	}
+	return out, nil
+}
+
+// chunkPieces is the general path: split into pieces, then window over
+// the piece slice. Any tokenizer works here, including ones whose
+// pieces are not runes and can be empty.
+func (c Chunker) chunkPieces(text string) ([]chunk.Chunk, error) {
 	parts := c.tok.Split(text)
 	if len(parts) == 0 {
 		return nil, nil
