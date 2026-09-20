@@ -656,3 +656,64 @@ func TestSearchSourceFilter(t *testing.T) {
 		t.Fatalf("nope got %d hits, want 0", len(got.Hits))
 	}
 }
+
+// "replace": true with a source is the one-step re-index: what that
+// source held leaves before the new batch lands, and no other source
+// is touched. The default (absent) adds to the source.
+func TestIndexReplaceSource(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	h := api.Handler()
+	index := func(text, source string, replace bool) {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{
+			"text": text, "chunker": "sentence", "size": 64,
+			"source": source, "replace": replace,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/index", bytes.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("index status %d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	index("cats sleep all day.", "a.md", false)
+	index("dogs bark at night.", "b.md", false)
+
+	// Replace a.md: the old chunk leaves, the new one is all it holds,
+	// and b.md survives.
+	index("cats purr when fed.", "a.md", true)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sources", nil))
+	var srcs struct {
+		Sources []store.Source `json:"sources"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &srcs); err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs.Sources) != 2 {
+		t.Fatalf("sources=%+v", srcs.Sources)
+	}
+	for _, s := range srcs.Sources {
+		if s.Count != 1 {
+			t.Fatalf("source %s count=%d, want 1", s.Name, s.Count)
+		}
+	}
+
+	// The default without "replace" adds to the source.
+	index("cats knead blankets.", "a.md", false)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sources", nil))
+	if err := json.Unmarshal(rec.Body.Bytes(), &srcs); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range srcs.Sources {
+		if s.Name == "a.md" && s.Count != 2 {
+			t.Fatalf("a.md count=%d after add, want 2", s.Count)
+		}
+	}
+}

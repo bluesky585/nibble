@@ -95,6 +95,11 @@ type chunkRequest struct {
 	// Source labels where these chunks came from, so they can be
 	// replaced later through DELETE /v1/sources/{name}. Optional.
 	Source string `json:"source"`
+	// Replace, when true with a Source, removes what that source held
+	// before indexing — the one-step re-index. It is opt-in because an
+	// API caller indexing in a loop would otherwise wipe the source on
+	// every request. Optional; false adds to the source.
+	Replace bool `json:"replace,omitempty"`
 }
 
 type chunkResponse struct {
@@ -142,7 +147,7 @@ func (a *API) indexText(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if err := a.index(emb, chunks, req.Source); err != nil {
+	if err := a.index(emb, chunks, req.Source, req.Replace); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		return
 	}
@@ -150,8 +155,15 @@ func (a *API) indexText(w http.ResponseWriter, r *http.Request) {
 }
 
 // index writes chunks to whichever store the API holds, labeled src as
-// their origin. The caller holds a.mu.
-func (a *API) index(emb embed.Embedder, chunks []chunk.Chunk, src string) error {
+// their origin. replace first removes what src held — the one-step
+// re-index. The caller holds a.mu.
+func (a *API) index(emb embed.Embedder, chunks []chunk.Chunk, src string, replace bool) error {
+	if replace && src != "" {
+		if a.sql != nil {
+			return store.ReplaceSourceLabeled(a.sql, emb, chunks, src)
+		}
+		return store.ReplaceSourceLabeled(a.mem, emb, chunks, src)
+	}
 	if a.sql != nil {
 		return store.IndexLabeled(a.sql, emb, chunks, src)
 	}

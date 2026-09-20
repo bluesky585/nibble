@@ -193,7 +193,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | `-k` | `5` | number of hits for `-query` |
 | `-scoring` | `dense` | `dense`, `bm25`, or `hybrid` (used by `-query`) |
 | `-hybrid-weight` | `0.5` | dense share of the blend when `-scoring hybrid` (0 to 1) |
-| `-source` | | name the origin of the indexed chunks (with `-index`); an upserted chunk under a new source moves there |
+| `-source` | | name the origin of the indexed chunks (with `-index`); replaces what that source held, unless `-append` |
+| `-append` | `false` | with `-source`: add to what the source holds instead of replacing it |
 | `-list-sources` | `false` | print the sources an `-index` holds as JSON and exit |
 | `-delete-source` | | remove every chunk of this source from the `-index` and exit |
 
@@ -271,6 +272,8 @@ nibble -chunker sentence -size 64 -index docs.db -source a.md a.md
 nibble -list-sources -index docs.db          # [{"name":"a.md","count":3},{"name":"b.md","count":1}]
 nibble -delete-source b.md -index docs.db    # {"deleted":1}
 ```
+
+Indexing under a source is the re-index: a run with `-source a.md` first removes what `a.md` held, then adds this batch, so the source ends up holding exactly the new cut of the document — changed and deleted chunks alike. `-append` opts back into adding to what the source holds instead of replacing it. Over HTTP the same choice is `"replace": true` on the index body, opt-in there too.
 
 A source the index does not hold deletes nothing and reports 0 — deleting to zero is the normal end of a re-index, not an error. Chunks indexed without a `-source` carry the empty source, which lists and deletes like any other name. The same management exists over HTTP as `GET /v1/sources` and `DELETE /v1/sources/{name}`, and the records a search returns carry their `source`.
 
