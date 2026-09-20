@@ -91,7 +91,7 @@ cuts, context copies, an index lifecycle), each run directly with
 `go run ./examples/<name>`.
 
 `nil` rules and delims mean the package defaults. `tokenizer.Character{}`,
-`tokenizer.Word{}`, and `tokenizer/tiktoken.New("cl100k_base")` are the three
+`tokenizer.Bigram{}`, and `tokenizer/tiktoken.New("cl100k_base")` are the four
 tokenizers. The sentence-based chunkers take one extra option:
 `sentencechunker.MinRunes(4)` merges sentence pieces shorter than 4 runes
 into the next piece, which absorbs abbreviation fragments such as the `e.`
@@ -176,7 +176,7 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `-chunker` | `recursive` | `recursive`, `sentence`, `token`, `fast`, `table`, `code`, `markdown`, or `semantic` |
-| `-tokenizer` | `character` | `character`, `word`, or `tiktoken` (ignored by `fast`) |
+| `-tokenizer` | `character` | `character`, `word`, `bigram`, or `tiktoken` (ignored by `fast`) |
 | `-size` | `512` | max tokens per chunk; **max bytes** for `fast` |
 | `-overlap` | `0` | token overlap; `token` widens windows, `recursive` repeats the previous chunk's tail |
 | `-index` | | optional index file of chunk embeddings; `.db`/`.sqlite`/`.sqlite3` names a SQLite database, anything else JSONL |
@@ -201,6 +201,8 @@ Reads a UTF-8 file, a directory (`-dir`), or stdin. Prints a JSON array of chunk
 `fast` looks for a delimiter near the byte budget and never splits a UTF-8 rune. JSON `start`/`end` are still rune offsets.
 
 `tiktoken` counts with a real BPE vocabulary, so `-size` is a model's token budget: `-tokenizer tiktoken -size 512` means 512 cl100k_base tokens. The encoding table is not embedded. The first use downloads it once and caches it on disk (`TIKTOKEN_CACHE_DIR` overrides the location), so a run that never selects this tokenizer never touches the network. Pieces are cut on character boundaries rather than raw token boundaries, because a BPE token can end inside a character and offsets are rune ranges; a token ending mid-character yields an empty piece, so `Count` still equals `len(Split)` and joining the pieces still restores the input.
+
+`bigram` exists for CJK text. Han, kana, and hangul are written without word boundaries, so `word` counts an entire sentence as one token and a size budget measured in it is meaningless; `bigram` tiles each CJK run into non-overlapping pairs (Latin and digit runs stay whole), so `-size 512` bounds roughly 512 retrieval terms of Chinese instead of 512 sentences. The pairs do not overlap — a tokenizer's pieces must reassemble the text — but the retrieval unit does slide: `bm25`'s term splitter and the `hashing` embedder both segment CJK runs into sliding bigrams, the unit Lucene's CJK analyzers use, so a paraphrased query's adjacent characters still match the document. All three segmentations come from one function (`tokenizer.Terms` and its tiling twin), so the ruler and the signals cannot drift apart.
 
 `table` splits GitHub-flavored Markdown tables by row. Later row-groups copy the header into `context` so retrieval keeps column names; `text` stays a slice of the original, so reconstruct still works.
 
@@ -242,7 +244,7 @@ A chunk that would hold nothing but whitespace is never emitted: when a paragrap
 
 `sentence` and `semantic` give a single sentence that is over budget on its own a second, finer cut — clauses (commas), then whitespace, then token windows — so a long sentence is divided at its commas where it has them, and a run without any punctuation still cannot push a chunk past `-size`. A window that absorbs edge whitespace may exceed `-size` by that whitespace, the same bounded overflow `recursive` documents for a merged blank. The only chunk that may still exceed `-size` by more is one holding a single token wider than the budget.
 
-`-embedder hashing` is local and needs no network. `-embedder openai` calls an OpenAI-compatible `/v1/embeddings` API (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`). One HTTP request per batch.
+`-embedder hashing` is local and needs no network. It hashes terms, not whitespace fields: the term splitter is the same one `bm25` uses, so CJK text embeds by sliding bigram and dense retrieval has a signal on it — a whitespace split hashed a whole sentence into one slot, which ranked CJK queries near random. `-embedder openai` calls an OpenAI-compatible `/v1/embeddings` API (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`). One HTTP request per batch.
 
 `-index` writes chunks plus vectors from the selected embedder to an index file. The file's extension picks the store: `.db` (or `.sqlite`, `.sqlite3`) opens a SQLite database — one table, one row per chunk, keyed by text and offsets so a re-upserted chunk updates rather than duplicates, and vectors stored as float32 — while any other name writes JSONL. The two stores return the same ranking, so switching one for the other is a persistence choice, not a retrieval choice; the SQLite file is incremental (an upsert writes the rows it touched) and reopens across processes, where the JSONL store rewrites its file on every upsert. Vectors are float32 end to end — the embedder returns them, the stores keep them, and scoring runs over them — so an index holds half the memory a float64 pipeline would and a search moves half the bytes.
 

@@ -6,76 +6,21 @@ package scoring
 import (
 	"fmt"
 	"math"
-	"strings"
-	"unicode"
 
 	"github.com/bluesky585/nibble/pkg/chunk"
+	"github.com/bluesky585/nibble/pkg/tokenizer"
 )
 
 // TermsFunc splits a text into index terms. It is the sparse side's
 // tokenizer, the way embed.Embedder is the dense side's.
 type TermsFunc func(text string) []string
 
-// WordTerms splits text into index terms. Latin and digit runs come
-// through whole, lowercased, the way they always have. A run of Han,
-// kana, or hangul has no written word boundaries to split on, so it is
-// segmented into sliding bigrams instead — the unit Lucene's CJK
-// analyzers use, which needs no dictionary and keeps adjacent
-// characters of a paraphrased query matching the document. A one-
-// character run cannot form a bigram and stays a unigram. Bigrams
-// never cross a script boundary: "大模型RAG" yields the bigrams of
-// "大模型" plus the term "rag", not "型R", which is noise that would
-// inflate document length without improving recall.
+// WordTerms splits text into index terms. It delegates to
+// tokenizer.Terms, the same segmentation the bigram tokenizer and the
+// hashing embedder use: one definition of a term across the sparse
+// side, the chunk scale, and the dense side.
 func WordTerms(text string) []string {
-	var terms []string
-	var latin strings.Builder
-	var cjk []rune
-
-	flushLatin := func() {
-		if latin.Len() > 0 {
-			terms = append(terms, latin.String())
-			latin.Reset()
-		}
-	}
-	flushCJK := func() {
-		switch len(cjk) {
-		case 0:
-		case 1:
-			terms = append(terms, string(cjk))
-		default:
-			for i := 0; i+1 < len(cjk); i++ {
-				terms = append(terms, string(cjk[i:i+2]))
-			}
-		}
-		cjk = cjk[:0]
-	}
-
-	for _, r := range strings.ToLower(text) {
-		switch {
-		case isCJKScript(r):
-			flushLatin()
-			cjk = append(cjk, r)
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			flushCJK()
-			latin.WriteRune(r)
-		default:
-			flushLatin()
-			flushCJK()
-		}
-	}
-	flushLatin()
-	flushCJK()
-	return terms
-}
-
-// isCJKScript reports whether the rune belongs to a script written
-// without word boundaries, and so needs bigram segmentation: Han
-// (Chinese), kana (Japanese syllabaries), and hangul (Korean).
-func isCJKScript(r rune) bool {
-	return unicode.Is(unicode.Han, r) ||
-		unicode.Is(unicode.Hiragana, r) ||
-		unicode.Is(unicode.Katakana, r) ||
-		unicode.Is(unicode.Hangul, r)
+	return tokenizer.Terms(text)
 }
 
 // BM25 is an Okapi BM25 scorer over a corpus fixed at construction. The

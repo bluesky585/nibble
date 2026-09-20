@@ -32,7 +32,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	chunkerName := fs.String("chunker", "recursive", "chunker: recursive, sentence, token, fast, table, code, markdown, or semantic")
-	tokName := fs.String("tokenizer", "character", "tokenizer: character, word, or tiktoken (ignored by fast)")
+	tokName := fs.String("tokenizer", "character", "tokenizer: character, word, bigram, or tiktoken (ignored by fast)")
 	lang := fs.String("lang", "", "language for -chunker code: go or python (empty detects it)")
 	rulesPath := fs.String("rules", "", "JSON file with a rule hierarchy for -chunker recursive (empty uses the defaults)")
 	size := fs.Int("size", 512, "max tokens per chunk (max bytes for fast)")
