@@ -128,6 +128,13 @@ export interface ChunkRequest {
    * source moves there.
    */
   source?: string;
+  /**
+   * With `source`, removes what that source held before indexing — the
+   * one-step re-index. Opt-in: an API caller indexing in a loop would
+   * otherwise wipe the source on every request. Optional; false adds
+   * to the source.
+   */
+  replace?: boolean;
 }
 
 /** The body of `POST /v1/search`. */

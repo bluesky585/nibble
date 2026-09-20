@@ -122,6 +122,28 @@ func IndexEmbeddedLabeled(st Store, chunks []chunk.Chunk, src string) error {
 	return st.Upsert(records)
 }
 
+// ReplaceSource is a re-index in one call: every record already
+// carrying src is removed, then the chunks are indexed under src, so
+// the source ends up holding exactly what this call brought — stale
+// chunks of a changed document leave with the old ones. An empty src
+// replaces the records indexed without a source.
+func ReplaceSourceLabeled(st Store, emb embed.Embedder, chunks []chunk.Chunk, src string) error {
+	if _, err := DeleteSource(st, src); err != nil {
+		return err
+	}
+	return IndexLabeled(st, emb, chunks, src)
+}
+
+// ReplaceSourceEmbeddedLabeled is ReplaceSourceLabeled for chunks that
+// already carry an Embedding, so a caller that ran Embed pays for no
+// second batch.
+func ReplaceSourceEmbeddedLabeled(st Store, chunks []chunk.Chunk, src string) error {
+	if _, err := DeleteSource(st, src); err != nil {
+		return err
+	}
+	return IndexEmbeddedLabeled(st, chunks, src)
+}
+
 func searchRecords(records []Record, query []float32, k int) ([]Hit, error) {
 	if k <= 0 {
 		return nil, fmt.Errorf("k must be > 0, got %d", k)

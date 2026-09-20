@@ -50,9 +50,10 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	scoringName := fs.String("scoring", "dense", "scoring for -query: dense, bm25, or hybrid")
 	hybridWeight := fs.Float64("hybrid-weight", 0.5, "dense share when -scoring hybrid (0 to 1)")
 	// Source management: a source names where an indexed chunk came
-	// from, so a re-indexed document can replace its old chunks without
-	// rebuilding the whole index.
-	sourceName := fs.String("source", "", "name the origin of the indexed chunks (with -index); an upserted chunk under a new source moves there")
+	// from. Indexing under a source replaces what that source held —
+	// the one-step re-index — and -append opts back into adding to it.
+	sourceName := fs.String("source", "", "name the origin of the indexed chunks (with -index); replaces what this source held before, unless -append")
+	appendSource := fs.Bool("append", false, "with -source: add to what the source holds instead of replacing it")
 	listSources := fs.Bool("list-sources", false, "print the sources an -index holds as JSON and exit")
 	deleteSource := fs.String("delete-source", "", "remove every chunk of this source from the -index and exit")
 
@@ -237,7 +238,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		err = indexChunks(st, emb, all, *embedInJSON, *sourceName)
+		err = indexChunks(st, emb, all, *embedInJSON, *sourceName, *appendSource)
 		if cerr := closeIndex(); err == nil {
 			err = cerr
 		}
@@ -273,10 +274,18 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 // indexChunks writes chunks to st, labeled with src as their origin
 // (empty means no source). When the chunks already carry vectors from
-// -embed they are reused, so no second batch is sent. The labeled
-// helpers keep the one definition of what gets embedded; the unlabeled
-// ones are src "" of the same call.
-func indexChunks(st store.Store, emb embed.Embedder, chunks []chunk.Chunk, preEmbedded bool, src string) error {
+// -embed they are reused, so no second batch is sent. A named source
+// replaces what it held before — the one-step re-index — unless append
+// is set, which opts back into adding to it. The labeled helpers keep
+// the one definition of what gets embedded; the unlabeled ones are
+// src "" of the same call.
+func indexChunks(st store.Store, emb embed.Embedder, chunks []chunk.Chunk, preEmbedded bool, src string, appendSrc bool) error {
+	if src != "" && !appendSrc {
+		if preEmbedded {
+			return store.ReplaceSourceEmbeddedLabeled(st, chunks, src)
+		}
+		return store.ReplaceSourceLabeled(st, emb, chunks, src)
+	}
 	if preEmbedded {
 		return store.IndexEmbeddedLabeled(st, chunks, src)
 	}

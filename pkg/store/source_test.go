@@ -313,3 +313,76 @@ func TestRecordsThroughInterface(t *testing.T) {
 		}
 	}
 }
+
+// ReplaceSource is the one-call re-index: the source's old records
+// leave (stale chunks of a changed document included) and exactly the
+// new batch is there after. Nothing else's records are touched.
+func TestReplaceSource(t *testing.T) {
+	t.Parallel()
+
+	jsPath := filepath.Join(t.TempDir(), "r.jsonl")
+	sqPath := filepath.Join(t.TempDir(), "r.db")
+	sts := map[string]func() (Store, error){
+		"memory": func() (Store, error) { return &Memory{}, nil },
+		"jsonl":  func() (Store, error) { return OpenJSONL(jsPath) },
+		"sqlite": func() (Store, error) { return OpenSQLite(sqPath) },
+	}
+
+	for name, open := range sts {
+		st, err := open()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// First cut of the document: two chunks under a.md, plus an
+		// unrelated record that must survive the replace.
+		recs := []Record{
+			sourceRec(t, "cats sleep all day", "a.md", 0),
+			sourceRec(t, "cats purr when fed", "a.md", 20),
+			sourceRec(t, "dogs bark at night", "b.md", 40),
+		}
+		if err := st.Upsert(recs); err != nil {
+			t.Fatal(err)
+		}
+
+		// Second cut: one chunk under the same source. The replace must
+		// leave exactly that, stale chunks included in the removal.
+		second := sourceRec(t, "cats sleep all day and night", "a.md", 0)
+		second.Chunk.Embedding = second.Vector
+		if err := ReplaceSourceEmbeddedLabeled(st, []chunk.Chunk{
+			second.Chunk,
+		}, "a.md"); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := Records(st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var aDocs, bDocs []string
+		for _, rec := range got {
+			switch rec.Source {
+			case "a.md":
+				aDocs = append(aDocs, rec.Chunk.Text)
+			case "b.md":
+				bDocs = append(bDocs, rec.Chunk.Text)
+			}
+		}
+		if len(aDocs) != 1 || aDocs[0] != "cats sleep all day and night" {
+			t.Fatalf("%s: a.md after replace: %v", name, aDocs)
+		}
+		if len(bDocs) != 1 {
+			t.Fatalf("%s: b.md clobbered: %v", name, bDocs)
+		}
+
+		// Replacing a source the index does not hold is a plain first
+		// index, not an error.
+		third := sourceRec(t, "birds migrate", "c.md", 0)
+		third.Chunk.Embedding = third.Vector
+		if err := ReplaceSourceEmbeddedLabeled(st, []chunk.Chunk{
+			third.Chunk,
+		}, "c.md"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

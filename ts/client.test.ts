@@ -364,3 +364,26 @@ test("search sends the source filter only when given", async () => {
   await client.search({ query: "cats" });
   assert.deepEqual(JSON.parse(call(calls, 1).body ?? ""), { query: "cats" });
 });
+
+test("index sends replace only when set", async () => {
+  const { fetch, calls } = recorder([
+    json(200, { count: 1 }),
+    json(200, { count: 1 }),
+  ]);
+
+  const client = new NibbleClient("http://nibble.test", { fetch });
+  await client.index({ text: "a", source: "a.md", replace: true });
+  assert.deepEqual(JSON.parse(call(calls, 0).body ?? ""), {
+    text: "a",
+    source: "a.md",
+    replace: true,
+  });
+
+  // Without replace the field is omitted entirely, so the server adds
+  // to the source instead of replacing it.
+  await client.index({ text: "b", source: "a.md" });
+  assert.deepEqual(JSON.parse(call(calls, 1).body ?? ""), {
+    text: "b",
+    source: "a.md",
+  });
+});

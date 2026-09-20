@@ -659,10 +659,12 @@ func TestRunSourceLifecycle(t *testing.T) {
 		return stdout.String(), code
 	}
 
-	// Index two texts, one under each source; the text rides stdin.
+	// Index under a source, then again under the same source: the second
+	// run replaces the first — the one-step re-index — so a.md ends up
+	// holding one chunk. The text rides stdin.
 	for _, tc := range []struct{ text, src string }{
 		{"cats sleep on mats.", "a.md"},
-		{"dogs bark all night.", "a.md"},
+		{"cats purr when fed.", "a.md"},
 		{"birds migrate in autumn.", "b.md"},
 	} {
 		var stdout, stderr bytes.Buffer
@@ -681,8 +683,19 @@ func TestRunSourceLifecycle(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &srcs); err != nil {
 		t.Fatalf("list output %q: %v", out, err)
 	}
-	if len(srcs) != 2 || srcs[0].Name != "a.md" || srcs[0].Count != 2 {
+	if len(srcs) != 2 || srcs[0].Name != "a.md" || srcs[0].Count != 1 {
 		t.Fatalf("sources=%+v", srcs)
+	}
+
+	// -append opts back into adding to what the source holds.
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-chunker", "sentence", "-size", "64", "-index", path,
+		"-source", "a.md", "-append"}, strings.NewReader("cats knead blankets."), &stdout, &stderr); code != 0 {
+		t.Fatalf("append: exit %d stderr=%s", code, stderr.String())
+	}
+	out, _ = run("-list-sources", "-index", path)
+	if !strings.Contains(out, `"count": 2`) {
+		t.Fatalf("sources after append: %s", out)
 	}
 
 	out, code = run("-delete-source", "b.md", "-index", path)
