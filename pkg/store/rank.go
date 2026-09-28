@@ -100,6 +100,16 @@ func DeleteSource(st Store, src string) (int, error) {
 // the embedder applies. Scores across modes are not comparable — each
 // mode is its own measure.
 func RankScores(records []Record, queryText string, queryVec []float32, mode string, weight float64) ([]float64, error) {
+	return RankScoresSparse(records, nil, queryText, queryVec, mode, weight)
+}
+
+// RankScoresSparse is RankScores with the sparse side's statistics
+// supplied. sparse is consulted only by bm25 and hybrid — dense scores
+// do not read it — and it must have been built over the same records
+// by SparseIndex; a stale or foreign index scores against statistics
+// that do not describe the corpus. A nil sparse makes bm25 and hybrid
+// build their own, the same work RankScores does.
+func RankScoresSparse(records []Record, sparse *scoring.BM25, queryText string, queryVec []float32, mode string, weight float64) ([]float64, error) {
 	if !ValidScoring(mode) {
 		return nil, fmt.Errorf("unknown scoring %q: use dense, bm25, or hybrid", mode)
 	}
@@ -114,7 +124,10 @@ func RankScores(records []Record, queryText string, queryVec []float32, mode str
 	case RankDense:
 		return scoreByCosine(records, queryVec), nil
 	case RankBM25:
-		return sparseScores(records, queryText), nil
+		if sparse == nil {
+			sparse = SparseIndex(records)
+		}
+		return normalizeSparse(sparse.Scores(queryText)), nil
 	default: // RankHybrid
 		if len(queryVec) != len(records[0].Vector) {
 			return nil, fmt.Errorf(
@@ -122,38 +135,51 @@ func RankScores(records []Record, queryText string, queryVec []float32, mode str
 				len(queryVec), len(records[0].Vector),
 			)
 		}
+		if sparse == nil {
+			sparse = SparseIndex(records)
+		}
 		dense := scoreByCosine(records, queryVec)
-		sparse := sparseScores(records, queryText)
+		sparseSide := normalizeSparse(sparse.Scores(queryText))
 		merged := make([]float64, len(records))
 		for i := range merged {
-			merged[i] = weight*dense[i] + (1-weight)*sparse[i]
+			merged[i] = weight*dense[i] + (1-weight)*sparseSide[i]
 		}
 		return merged, nil
 	}
 }
 
-// sparseScores scores every record with BM25 over the record texts,
-// normalized to the corpus maximum so the numbers land in [0, 1].
-func sparseScores(records []Record, query string) []float64 {
+// SparseIndex builds the BM25 statistics over records: the expensive
+// half of a sparse search, since the corpus is termed once. A caller
+// that searches the same corpus repeatedly — an API server above all —
+// builds once and hands the index to RankScoresSparse per query,
+// instead of paying the build inside every RankScores call. The index
+// is a snapshot: records changed since it was built score against the
+// old statistics, so a caller must rebuild when its corpus changes.
+func SparseIndex(records []Record) *scoring.BM25 {
 	docs := make([]chunk.Chunk, len(records))
 	for i, rec := range records {
 		docs[i] = rec.Chunk
 	}
-	ranker := scoring.NewBM25(docs, scoring.WordTerms)
-	out := make([]float64, len(records))
+	return scoring.NewBM25(docs, scoring.WordTerms)
+}
+
+// normalizeSparse scales scores to the corpus maximum, landing them in
+// [0, 1]. BM25 scores are unbounded, and both the hybrid blend (which
+// adds them to a bounded cosine) and any caller reading a score need
+// the bound.
+func normalizeSparse(scores []float64) []float64 {
 	maxSparse := 0.0
-	for i := range records {
-		out[i] = ranker.Score(i, query)
-		if out[i] > maxSparse {
-			maxSparse = out[i]
+	for _, s := range scores {
+		if s > maxSparse {
+			maxSparse = s
 		}
 	}
 	if maxSparse > 0 {
-		for i := range out {
-			out[i] /= maxSparse
+		for i := range scores {
+			scores[i] /= maxSparse
 		}
 	}
-	return out
+	return scores
 }
 
 // Rank orders records by score descending and takes k, wrapping the

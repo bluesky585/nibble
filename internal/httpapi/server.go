@@ -11,6 +11,7 @@ import (
 	"github.com/bluesky585/nibble/internal/buildchunk"
 	"github.com/bluesky585/nibble/pkg/chunk"
 	"github.com/bluesky585/nibble/pkg/embed"
+	"github.com/bluesky585/nibble/pkg/scoring"
 	"github.com/bluesky585/nibble/pkg/store"
 )
 
@@ -26,6 +27,26 @@ type API struct {
 	mu  sync.Mutex
 	mem *store.Memory
 	sql *store.SQLite
+	// sparse caches the BM25 statistics for one corpus snapshot, so a
+	// bm25 or hybrid search does not re-term every record on every
+	// query. It is nil when stale — anything indexed or deleted since
+	// it was built — and rebuilt on the next sparse search under the
+	// same lock the corpus read already holds. The cache holds the
+	// unfiltered corpus only: a source-filtered search filters the
+	// records, but the statistics stay those of the whole corpus.
+	// BM25's idf is corpus-wide by definition, and scoring a filtered
+	// ranking against whole-corpus statistics keeps every filter of
+	// the same snapshot consistent — one build serves every filter.
+	sparse *sparseCache
+}
+
+// sparseCache is the BM25 statistics built over the records of one
+// corpus snapshot. The cache is dropped — never updated — when the
+// corpus changes; the records are kept only as the identity of the
+// snapshot the index describes.
+type sparseCache struct {
+	records []store.Record
+	index   *scoring.BM25
 }
 
 // New returns an API with an empty memory store.
@@ -151,6 +172,8 @@ func (a *API) indexText(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		return
 	}
+	// The corpus changed; the cached statistics no longer describe it.
+	a.sparse = nil
 	writeJSON(w, http.StatusOK, indexResponse{Count: len(chunks)})
 }
 
@@ -212,13 +235,32 @@ func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
 	// concurrent use, and an index arriving mid-search would otherwise
 	// change the corpus under the scores.
 	a.mu.Lock()
-	records, err := a.records()
-	if err == nil && req.Source != nil {
-		records = store.FilterSource(records, *req.Source)
-	}
+	all, err := a.records()
 	if err == nil {
+		// The sparse statistics ride the cache: an index built over the
+		// current corpus snapshot serves this search, whatever source
+		// filter it applies — BM25's idf is corpus-wide by definition,
+		// so the whole-corpus statistics are the right ones for a
+		// filtered ranking too. A nil cache (first sparse search, or
+		// anything changed since the last) rebuilds. Dense never
+		// touches the sparse index.
+		var sparse *scoring.BM25
+		if req.Scoring != store.RankDense {
+			if a.sparse != nil && len(all) > 0 &&
+				&a.sparse.records[0] == &all[0] && len(a.sparse.records) == len(all) {
+				sparse = a.sparse.index
+			} else {
+				sparse = store.SparseIndex(all)
+				a.sparse = &sparseCache{records: all, index: sparse}
+			}
+		}
+
+		records := all
+		if req.Source != nil {
+			records = store.FilterSource(all, *req.Source)
+		}
 		var scores []float64
-		scores, err = store.RankScores(records, req.Query, queryVec, req.Scoring, req.HybridWeight)
+		scores, err = store.RankScoresSparse(records, sparse, req.Query, queryVec, req.Scoring, req.HybridWeight)
 		if err == nil {
 			hits := store.Rank(records, scores, req.K)
 			if hits == nil {
@@ -294,6 +336,11 @@ func (a *API) deleteSource(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		return
+	}
+	// The corpus changed; the cached statistics no longer describe it.
+	// A delete that removed nothing leaves the cache valid.
+	if n > 0 {
+		a.sparse = nil
 	}
 	writeJSON(w, http.StatusOK, deleteSourceResponse{Deleted: n})
 }

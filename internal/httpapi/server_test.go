@@ -717,3 +717,56 @@ func TestIndexReplaceSource(t *testing.T) {
 		}
 	}
 }
+
+// The sparse statistics cache must never serve stale rankings: a
+// search after an index or a delete sees the corpus as it now is. The
+// cache is an optimization, so the observable contract is that every
+// answer matches a from-scratch rebuild's.
+func TestSearchSparseCacheInvalidation(t *testing.T) {
+	t.Parallel()
+
+	api := New()
+	h := api.Handler()
+	post := func(path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status %d body=%s", path, rec.Code, rec.Body.String())
+		}
+		return rec
+	}
+
+	// The first sparse search builds the cache over one source's record.
+	post("/v1/index", `{"text":"cats sleep on mats","chunker":"sentence","size":48,"source":"a"}`)
+	rec := post("/v1/search", `{"query":"cats","scoring":"bm25","k":5}`)
+	var resp searchResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Hits) != 1 {
+		t.Fatalf("first search got %d hits", len(resp.Hits))
+	}
+
+	// Index a second source; the cached statistics predate it, and a
+	// query only the new record answers must still find it.
+	post("/v1/index", `{"text":"quarks feel the strong force","chunker":"sentence","size":48,"source":"b"}`)
+	rec = post("/v1/search", `{"query":"quarks","scoring":"bm25","k":5}`)
+	resp = searchResponse{}
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Hits) < 1 || resp.Hits[0].Score != 1 ||
+		!strings.Contains(resp.Hits[0].Record.Chunk.Text, "quarks") {
+		t.Fatalf("search after index: quarks must rank first at score 1, got %+v", resp.Hits)
+	}
+
+	delRec := httptest.NewRecorder()
+	h.ServeHTTP(delRec, httptest.NewRequest(http.MethodDelete, "/v1/sources/b", nil))
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("delete status %d", delRec.Code)
+	}
+	rec = post("/v1/search", `{"query":"quarks","scoring":"bm25","k":5}`)
+	resp = searchResponse{}
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	for _, hit := range resp.Hits {
+		if strings.Contains(hit.Record.Chunk.Text, "quarks") {
+			t.Fatalf("deleted record still ranked: %+v", resp.Hits)
+		}
+	}
+}
